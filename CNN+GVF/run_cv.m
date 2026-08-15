@@ -78,7 +78,17 @@ tAll = tic;
 for f = 1:k
     test = folds{f};
     rest = setdiff(foldInfo.Image, test, 'stable');
-    inner = rest(1:min(cfg.CV.innerVal, numel(rest) - 1));
+
+    % Spread the inner-validation picks across the area range. rest is sorted
+    % by lesion area descending, so rest(1:innerVal) would always hand
+    % best-validation checkpoint selection the two largest lesions - in the
+    % 1-epoch dry run that made fold 3 keep its untrained network and predict
+    % 0 px on all three held-out images. Interior evenly spaced positions give
+    % a mid-range, representative pair instead.
+    n   = numel(rest);
+    nv  = min(cfg.CV.innerVal, n - 1);
+    pos = round(linspace(1, n, nv + 2));
+    inner = rest(pos(2:end-1));
 
     fprintf('\n=== fold %d/%d ===\n', f, k);
     fprintf('  test  (%d): %s\n', numel(test),  strjoin(test',  ', '));
@@ -131,7 +141,14 @@ if isempty(parts)
     error('cnngvf:runCv:noResults', 'No fold produced any scores.');
 end
 
-perImage = sortrows(vertcat(parts{:}), 'Image');
+perImage = vertcat(parts{:});
+
+% readtable gives Image back as a cell of char, which fprintf's %s cannot
+% format - cnngvf.evaluate builds it as a string array. Normalise before
+% anything downstream touches it.
+perImage.Image = string(perImage.Image);
+perImage = sortrows(perImage, 'Image');
+
 writetable(perImage, fullfile(cvRoot, 'per_image.csv'));
 
 summary = struct( ...
