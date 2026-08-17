@@ -128,16 +128,54 @@ To compare two networks, run both under the same mode.
 
 ## Measured results
 
-### Clustered vs unclustered training seeds (whole-image scoring)
+### Headline: 5-fold cross-validation (the only trustworthy number)
 
-Identical evaluation, identical GT; only the localization points differ.
+**Unclustered + balanced sampling, every image scored out-of-sample:**
+
+| | mean IoU | median | F1 | precision | recall |
+|---|---|---|---|---|---|
+| **5-fold CV (17 images)** | **0.4163** | 0.4632 | 0.5640 | 0.7210 | 0.5698 |
+
+Per-fold means 0.352 / 0.461 / 0.430 / 0.388 / 0.457 — sd 0.047, so the estimate is stable.
+Run with `run_cv('unclustered')`; folds are deterministic and area-stratified
+(`cnngvf.cvFolds`), and every fold scored exactly its held-out images (verified).
+
+**The single-split numbers below are optimistic and should not be quoted.** They were
+inflated twice over:
+
+| estimate | value | what is wrong with it |
+|---|---|---|
+| single-split, all 17 images | 0.5430 | 13 of 17 images trained the model |
+| single-split, 4 "validation" images | 0.5591 | those same 4 images selected the checkpoint |
+| **5-fold CV** | **0.4163** | — |
+
+The second inflation is the subtle one. `OutputNetwork="best-validation"` picks the checkpoint
+that scores best on `cfg.Split.Val`, and those same images were then reported as held-out —
+selection on the test set. Scored honestly under CV, those four images give 0.4697 rather than
+0.5591, so checkpoint selection alone was worth **+0.089**. `461.png` illustrates it: 0.731 as
+a single-split validation image, 0.307 under cross-validation.
+
+**Consequence for the results below:** the "+0.068 out-of-sample gain" attributed to balanced
+sampling was measured on that contaminated 4-image set, and its magnitude is not trustworthy.
+The direction is still supported by the mechanism (39% of the epoch going to one image), but
+the size is unverified. Confirming it needs a second CV run.
+
+Also note the CV figure **cannot** be compared with the clustered single-split 0.4226 — different
+protocols. `run_cv('clustered')` is the comparison that would settle it.
+
+### Clustered vs unclustered training seeds (whole-image scoring, single split)
+
+Identical evaluation, identical GT; only the localization points differ. **Both rows are
+single-split and so ~13/17 in-sample — read the direction, not the values.** Neither is
+comparable with the cross-validated 0.4163 above.
 
 | | mean IoU | median IoU | mean F1 | precision | recall |
 |---|---|---|---|---|---|
 | clustered centres | 0.4226 | 0.5030 | 0.5587 | 0.7770 | 0.5270 |
 | **unclustered detections** | **0.5315** | **0.5896** | **0.6698** | 0.6319 | **0.8293** |
 
-**+0.109 mean IoU, +0.087 median, improved on 12 of 17 images.**
+**+0.109 mean IoU, +0.087 median, improved on 12 of 17 images** — under a protocol that
+flatters both arms equally, so the direction is informative even though the values are not.
 
 The gain is concentrated exactly where the clustered pipeline was structurally broken — on
 lesions far larger than one 512 px patch, which a single centre could never cover:
