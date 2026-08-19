@@ -128,17 +128,38 @@ To compare two networks, run both under the same mode.
 
 ## Measured results
 
-### Headline: 5-fold cross-validation (the only trustworthy number)
+### Headline: 5-fold cross-validation, both arms, paired
 
-**Unclustered + balanced sampling, every image scored out-of-sample:**
+Every image scored out-of-sample by the fold that held it out. Both arms use the **same
+deterministic area-stratified folds** (`cnngvf.cvFolds`), so the comparison is paired
+image-by-image. Integrity verified for both: 17 rows, 17 unique, no fold scored an image it
+trained on.
 
-| | mean IoU | median | F1 | precision | recall |
+| 5-fold CV (17 images) | mean IoU | median | F1 | precision | recall |
 |---|---|---|---|---|---|
-| **5-fold CV (17 images)** | **0.4163** | 0.4632 | 0.5640 | 0.7210 | 0.5698 |
+| clustered centres | 0.3299 | 0.3215 | 0.4576 | **0.7965** | 0.4079 |
+| **unclustered detections** | **0.4163** | **0.4632** | **0.5640** | 0.7210 | **0.5698** |
 
-Per-fold means 0.352 / 0.461 / 0.430 / 0.388 / 0.457 — sd 0.047, so the estimate is stable.
-Run with `run_cv('unclustered')`; folds are deterministic and area-stratified
-(`cnngvf.cvFolds`), and every fold scored exactly its held-out images (verified).
+**Unclustered training seeds improve segmentation by +0.086 mean IoU (+0.123 median).**
+
+| | |
+|---|---|
+| improved on | **13 of 17** images |
+| bootstrap 95% CI on mean delta | **[+0.019, +0.154]** — excludes zero |
+| exact two-sided sign test | p = 0.049 |
+| per-fold delta | +0.072 / +0.114 / +0.194 / +0.017 / +0.030 — **positive in all 5** |
+
+The mechanism is coverage: the detector fires many times on a large lesion, so seed-centred
+patches tile it, where a single cluster centre can only see one 512 px window of it. The cost
+is precision (0.797 → 0.721) bought with recall (0.408 → 0.570).
+
+**Honest limits.** n = 17, so p = 0.049 is marginal and the CI is wide — this establishes the
+direction confidently and the magnitude only loosely. Four images regress, worst `573.png`
+(−0.200) and `641.png` (−0.123). The single-split estimate of the same effect was +0.109
+against the cross-validated +0.086, so that protocol overstated the gain by roughly a quarter
+while getting the sign and rough size right.
+
+Reproduce with `run_cv('unclustered')` and `run_cv('clustered')` (~8 h and ~10 h).
 
 **The single-split numbers below are optimistic and should not be quoted.** They were
 inflated twice over:
@@ -155,13 +176,16 @@ selection on the test set. Scored honestly under CV, those four images give 0.46
 0.5591, so checkpoint selection alone was worth **+0.089**. `461.png` illustrates it: 0.731 as
 a single-split validation image, 0.307 under cross-validation.
 
-**Consequence for the results below:** the "+0.068 out-of-sample gain" attributed to balanced
-sampling was measured on that contaminated 4-image set, and its magnitude is not trustworthy.
-The direction is still supported by the mechanism (39% of the epoch going to one image), but
-the size is unverified. Confirming it needs a second CV run.
+**Consequence:** the "+0.068 out-of-sample gain" attributed to balanced sampling was measured
+on that contaminated 4-image set, so its magnitude is not trustworthy. The direction is
+supported by the mechanism (39% of the epoch going to one image), but the size remains
+unverified — the cross-validated runs both used balanced sampling, so they establish the
+unclustered-vs-clustered effect, not the balancing effect. Isolating that needs its own CV
+pair.
 
-Also note the CV figure **cannot** be compared with the clustered single-split 0.4226 — different
-protocols. `run_cv('clustered')` is the comparison that would settle it.
+Note the CV figures cannot be compared with any single-split figure — different protocols. The
+clustered-vs-unclustered comparison above is valid because *both* arms were cross-validated on
+identical folds.
 
 ### Clustered vs unclustered training seeds (whole-image scoring, single split)
 
