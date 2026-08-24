@@ -51,6 +51,184 @@ Per-seed masks are unioned into one image-level mask. One level set evolves over
 image and the seeds decide afterwards which components survive — that is what lets a lesion
 split into fronds, which a parametric contour cannot do.
 
+## Stage by stage
+
+Each stage below is written out by [`run_steps.m`](../CNN+GVF/run_steps.m) under the numbered
+filename given, so every claim here can be inspected on a real image:
+`run_steps("458.png")`.
+
+Measurements are from this dataset. Where a stage's importance is reasoned rather than
+measured, it says so.
+
+### 1. Denoising — `02_denoised.png`
+
+**Does:** median filter, `[3 3]`, on the grayscale image (`rnv.loadImage`).
+
+**Matters because** OCTA speckle is multiplicative and pixel-local, which is exactly what a
+median filter removes while leaving edges intact. Everything downstream differentiates this
+image — the force field is `|∇P|` and `P` comes from the CNN — and differentiation amplifies
+noise. *Reasoned, not ablated here;* it is inherited from `RNV-Claude/main` and from the OCTAVA
+preprocessing convention in [spec.md](spec.md).
+
+### 2. Vesselness channel — `03_vesselness.png`
+
+**Does:** multiscale Frangi response, `fibermetric(I, [2 4 6 8], ObjectPolarity="bright")`,
+supplied as the network's second input channel.
+
+**Matters because** RNV *is* a vessel structure, and a vesselness response suppresses the
+background texture a raw intensity gradient latches onto. The scales are deliberately small:
+[CLAUDE.md](CLAUDE.md) notes large sigmas blur thin vessels away entirely, and thin-vessel
+sensitivity is the standing open problem in this literature. *Reasoned;* the channel has not
+been ablated.
+
+### 3. Seed heat-map — `04_seed_heatmap.png`, `patches/seed_NN.png`
+
+**Does:** a Gaussian bump (`sigmaSeed = 32`) at the seed's position **within the patch**,
+appended as the third input channel.
+
+**Matters because** it is the only thing that makes the network seed-*conditioned* rather than
+a plain segmenter. Without it the network answers "where is RNV in this patch"; with it,
+"which lesion does this point belong to" — the question the evaluation actually asks.
+
+The subtlety is that the training crop is jittered ±32 px while the heat-map stays on the true
+seed. Had the seed always sat at the patch centre, the channel would be constant and therefore
+ignorable, and the network would learn nothing from it. `test_cnngvf` asserts the heat-map peak
+tracks the seed through the jitter, precisely because this is silent when wrong.
+
+### 4. U-Net → probability map `P` — `05_prob.png`
+
+**Does:** `unet([512 512 3], 2, EncoderDepth=4)`, four down/up stages with skip connections,
+softmax over {background, RNV}; `P` is the foreground channel. Per-seed patches are predicted
+in batches of `inferBatch`, then stitched with a raised-cosine window so overlapping seeds
+leave no seams.
+
+**Matters most.** Every large gain in this project came from improving `P`, and every
+post-processing lever was worth an order of magnitude less:
+
+| change | effect |
+|---|---|
+| clustered → unclustered seeds | **+0.086 IoU** (cross-validated) |
+| patch 256 → 512 | fixed segments that scored 0.02–0.07 |
+| GVF + level set vs thresholding `P` | +0.017 |
+| best possible per-image threshold | *worse* than the pipeline (0.5068 vs 0.5315) |
+
+The loss is generalized Dice, whose inverse-square-volume class weighting is what stops the
+network collapsing to all-background on a small foreground fraction.
+
+**Its failures cannot be repaired downstream.** A lesion the network never responds to is gone:
+under the clustered baseline `1115.png` had recall 0.044 and no contour method recovers it.
+
+### 5. Force field `f = |∇P|` — `06_force.png`
+
+**Does:** gradient magnitude of a lightly blurred `P`, normalised to `[0,1]`.
+
+**Matters because** it defines *what the contour is attracted to*. The GVF of a ridge points at
+that ridge from both sides, and the ridge of `|∇P|` is the CNN's boundary — so this is the
+choice that makes the level set converge to the boundary rather than anywhere else.
+
+**`f = P` is deliberately not offered**, though [spec.md](spec.md) lists it: the GVF of `P`
+points at lesion *cores*, so under the advection sign in `drlse` it collapses the front to a
+point. Both available sources (`"probGrad"`, `"blend"`) are boundary maps.
+
+### 6. GVF diffusion → `(u,v)` — `07_gvf_magnitude.png`, `08_gvf_quiver.png`
+
+**Does:** Xu & Prince diffusion (`alpha 0.2, mu 0.2, 80` iterations) via the compiled mex in
+`lib/Fast-Gradient-Vector-Flow`, then scaled so the peak magnitude is 1.
+
+**Matters because** a raw edge force exists only in a thin band around the edge; diffusion
+extends it across the image, which is what gives capture range and lets a contour reach a
+boundary it did not start on. It is also what carries force into concavities — essential for
+frond-like RNV, whose boundary is fern-like rather than convex.
+
+Scaling is **global, not per-vector**: the field's relative weakness far from the lesion is
+meaningful to the level set, and per-vector normalisation would erase it.
+
+### 7. Edge stopper `g` — `09_edge_stopper.png`
+
+**Does:** `g = 1/(1 + (edgeGain · |∇(G*P)| / max)²)` — small where `P` has a strong boundary,
+so the front slows there.
+
+**Matters because** it is the brake. Without a working brake the balloon and curvature terms
+push the contour through boundaries.
+
+**This one was a measured bug fix.** The classic `g = 1/(1+|∇(G*I)|²)` assumes a 0–255 image.
+On a probability map in `[0,1]` it returns **g ≈ 0.999 everywhere** — no brake at all, and the
+front floods the background. Normalising the gradient by its own peak and applying
+`edgeGain = 8` restores the intended range and makes it independent of how sharp this
+particular network's output happens to be.
+
+### 8. Initialisation `phi0` — `10_phi0_init.png`
+
+**Does:** `phi0 = c0·(1 − 2·BW0)` where `BW0 = P > tau`, restricted to seed-claimed components.
+Negative inside, positive outside. A seed whose neighbourhood never crosses `tau` gets a small
+disk (`seedRadius = 15`) instead of nothing.
+
+**Matters because** the level set only finds boundaries it starts near, and this is what makes
+the start good — it is already roughly correct, which is why the balloon term is off (below).
+The disk fallback matters for a different reason: with 17 training images the network *will*
+miss, and without it a missed lesion is silently dropped rather than given a chance to grow.
+
+### 9. DRLSE level set — `11_levelset_raw.png`
+
+**Does:** Li et al. (2010) distance-regularized evolution, with the GVF field substituted for
+`∇g`:
+
+```
+φ ← φ + dt·[ muDR·distReg(φ) + λ·δ(φ)·(g·curv − (u·φx + v·φy)) + alfa·g·δ(φ) ]
+```
+
+**Matters** for two things a parametric snake cannot do. It **splits and merges natively** —
+one `φ` holds every lesion in the image, and `458.png`'s ground truth has 12 components against
+7 clustered seeds. And the distance regularization removes re-initialisation, which permits the
+large time step.
+
+Measured contribution: **+0.017 IoU** over thresholding the same `P` with identical
+post-processing, better on 13 of 17 images. Modest, and the reason is structural — see
+[the level-set section](#what-the-level-set-contributes).
+
+Two parameters are counter-intuitive and both were measured:
+
+- **`alfa = 0`** (no balloon), against [spec.md](spec.md)'s ±1.5. That suggestion assumes a
+  contour starting far from the object. Here `phi0` is already on the boundary *and* binary
+  rather than a distance function, so the Dirac has no narrow band and a balloon pushes on the
+  whole image at once. Measured: `alfa` 0 → IoU 0.965, −0.2 → 0.735, −0.5 → 0.130.
+- **The advection sign.** `∇g` points *away* from a boundary; a GVF field points *toward* it.
+  The substituted term is therefore `−(u,v)·∇φ`. With the opposite sign the front runs away
+  from every edge it should stop on.
+
+### 10. Morphology — `12_after_morph.png`
+
+**Does:** `imclose(disk 2)` then `imfill('holes')`.
+
+**Matters because** the target is `FilledGT`, whose lesions are filled — leaving interior holes
+would be scored as false negatives. Closing bridges the 1–2 px gaps the level set leaves along
+ragged frond boundaries.
+
+Modest but not free: it moves the boundary raggedness index from 8.14 (raw threshold) to 6.04,
+against a ground truth of 6.31 — closer to the truth than either the raw threshold or the level
+set alone (4.75, which over-smooths).
+
+### 11. Seed component claiming — `13_final_mask.png`
+
+**Does:** `cnngvf.seedMasks` — each seed claims the component it falls inside, or the nearest
+qualifying one by centroid; components no seed claims are dropped; anything below
+`minArea = 500` cannot be claimed.
+
+**Matters far more than it looks.** This is the stage that converts a probability map into a
+*localization-driven* segmentation, and it removes false-positive blobs no threshold can:
+
+| | mean IoU |
+|---|---|
+| best possible **per-image** threshold (oracle) | 0.5068 |
+| the pipeline | **0.5315** |
+
+The pipeline beats an oracle threshold-picker, and this stage is why. `641.png` is the extreme
+case: 0.873 in the pipeline against 0.189 at its best possible threshold.
+
+It also mirrors the ground truth's own convention — `separate_segments.py` writes one file per
+seed, not per component — so two seeds inside one lesion both return that lesion, exactly as
+two ground-truth files would.
+
 ## Specification
 
 All values from [`+cnngvf/defaults.m`](../CNN+GVF/+cnngvf/defaults.m); `run_train_unclustered`
