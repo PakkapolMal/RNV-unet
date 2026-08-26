@@ -60,26 +60,48 @@ filename given, so every claim here can be inspected on a real image:
 Measurements are from this dataset. Where a stage's importance is reasoned rather than
 measured, it says so.
 
-### 1. Denoising — `02_denoised.png`
+### 1. Denoising — `02_denoised.png`  *(currently OFF)*
 
-**Does:** median filter, `[3 3]`, on the grayscale image (`rnv.loadImage`).
+**Does:** median filter, `[3 3]`, on the grayscale image (`rnv.loadImage`). Disabled by
+`cfg.Denoise = []`, which `run_train_unclustered` and `run_batch_unclustered` now set.
 
-**Matters because** OCTA speckle is multiplicative and pixel-local, which is exactly what a
-median filter removes while leaving edges intact. Everything downstream differentiates this
-image — the force field is `|∇P|` and `P` comes from the CNN — and differentiation amplifies
-noise. *Reasoned, not ablated here;* it is inherited from `RNV-Claude/main` and from the OCTAVA
-preprocessing convention in [spec.md](spec.md).
+**The argument for it** is that OCTA speckle is multiplicative and pixel-local, exactly what a
+median filter removes while leaving edges intact, and everything downstream differentiates this
+image. **The measurement did not support it** — see the ablation below.
 
-### 2. Vesselness channel — `03_vesselness.png`
+### 2. Vesselness channel — `03_vesselness.png`  *(currently OFF)*
 
-**Does:** multiscale Frangi response, `fibermetric(I, [2 4 6 8], ObjectPolarity="bright")`,
-supplied as the network's second input channel.
+**Does:** multiscale Frangi response, `fibermetric(I, [2 4 6 8], ObjectPolarity="bright")`, as a
+second input channel. Disabled by `cfg.Vessel.enabled = false`; the network then takes 2 inputs
+(intensity + heat-map) rather than 3.
 
-**Matters because** RNV *is* a vessel structure, and a vesselness response suppresses the
-background texture a raw intensity gradient latches onto. The scales are deliberately small:
-[CLAUDE.md](CLAUDE.md) notes large sigmas blur thin vessels away entirely, and thin-vessel
-sensitivity is the standing open problem in this literature. *Reasoned;* the channel has not
-been ablated.
+**The argument for it** is that RNV *is* a vessel structure and a vesselness response suppresses
+the background texture a raw gradient latches onto, with deliberately small scales because
+[CLAUDE.md](CLAUDE.md) notes large sigmas blur thin vessels away. **The measurement did not
+support it either.**
+
+### Ablation: both filters removed
+
+Same seeds, same scoring, compared on the **17 images both runs scored**:
+
+| | mean IoU | median |
+|---|---|---|
+| 3-channel: median filter + vesselness | 0.5430 | 0.5829 |
+| 2-channel: neither | 0.5341 | **0.5833** |
+| delta | −0.0089 | +0.0004 |
+
+Better on 8 of 17 images — indistinguishable. **Neither filter is earning its place**, so both
+are off by default in the unclustered arm. The CNN evidently extracts what it needs from raw
+intensity, which is consistent with everything else measured here: the probability map is the
+bottleneck, and hand-designed front-ends have not moved it.
+
+**Confounded, so do not over-read the −0.009.** The filter-free run also trained on 41
+ground-truth images instead of 17. If the extra data helped, it may be masking a real cost from
+dropping the filters. Separating them needs a 2-channel run on the original 17, or a 3-channel
+run on all 41.
+
+Both are still one flag away (`cfg.Denoise`, `cfg.Vessel.enabled`), and the channel count is
+derived throughout, so re-enabling either needs only a retrain.
 
 ### 3. Seed heat-map — `04_seed_heatmap.png`, `patches/seed_NN.png`
 
@@ -238,11 +260,20 @@ overrides `perSeed`.
 
 | item | value |
 |---|---|
-| images | 1024×1024 OCTA en-face, `RNV-DRAC22NV/` |
-| training seeds | `DRAC_RNV_Points_Unclustered.csv` |
+| images | 1024×1024 OCTA en-face, `RNV-DRAC22NV/` — **41 with ground truth**, 39 of which carry seeds |
+| training seeds | `DRAC_RNV_Points_Unclustered.csv` — 281 rows, 232 usable (49 fall outside every lesion) |
 | inference seeds | same |
 | labels | the `FilledGT` connected component containing each seed |
 | scoring | union mask vs whole `FilledGT/<stem>.png` (`EvalMode = "image"`) |
+
+The dataset grew from 17 to 41 ground-truth images during development. `cnngvf.prepareData`
+and `cnngvf.cvFolds` both scan the ground-truth directory, so nothing needs updating when
+images are added — but **`SegmentFilledGT/` still covers only the original 17**, so
+`EvalMode = "segment"` fails on the newer ones until `separate_segments.py` is re-run. The
+unclustered arm scores whole-image and is unaffected.
+
+Any figure measured before the dataset grew is not comparable with one measured after. The
+cross-validated 0.4163 was measured on 17 images.
 
 Labels are computed by component lookup, not read from `SegmentFilledGT/`. Verified to
 reproduce all 35 segment files exactly, and it works for point sets those files are not keyed
