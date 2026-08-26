@@ -6,7 +6,34 @@ Original design: [spec.md](spec.md).
 
 ## Result
 
-**5-fold cross-validated, every image scored out-of-sample, both arms on identical folds:**
+### Current configuration, full dataset
+
+Unclustered detections, balanced sampling, **no median filter, no vesselness** (2 input
+channels), 20 epochs. 5-fold cross-validated, every image scored out-of-sample:
+
+| 5-fold CV, 39 seeded images of 41 | mean IoU | median | F1 | precision | recall |
+|---|---|---|---|---|---|
+| **unclustered, filters off** | **0.4603** | 0.4511 | 0.6040 | 0.6434 | 0.6349 |
+
+Per-fold 0.4215 / 0.3468 / 0.4947 / 0.4569 / 0.5673 — sd 0.082, a wider spread than the earlier
+17-image run, so read fold-level differences as noise. Integrity verified: 39 rows, 39 unique,
+every fold scored exactly its held-out images. Runtime 3.9 h.
+
+The 22 newly added images are no harder than the original 17 (0.4514 vs 0.4717), so the
+enlarged dataset did not shift the distribution.
+
+**Against the previous cross-validated figure, on the 17 images common to both:** 0.4163 →
+0.4717, **+0.055**. Three things changed together — filters removed, 2.4× more training data,
+30 → 20 epochs — so this is not attributable to any one. The extra data is the likely driver:
+the filter ablation measured ≈0, and fewer epochs should if anything hurt.
+
+**There is no paired baseline for this dataset.** `run_cv('clustered')` (~12 h) would restore
+it.
+
+### The paired comparison (17 images, superseded)
+
+Both arms on identical folds, 3 channels, 30 epochs. Preserved per-image in
+`result/cv_17images/`. **This is still the only paired evidence that unclustered seeds help.**
 
 | 5-fold CV (17 images) | mean IoU | median | F1 | precision | recall |
 |---|---|---|---|---|---|
