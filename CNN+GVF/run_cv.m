@@ -60,6 +60,15 @@ end
 
 cfg.EvalMode = "image";   % the union mask vs FilledGT; the unit both arms share
 
+% Preprocessing is set here, for BOTH arms, rather than inherited per arm from
+% run_train / run_train_unclustered - those two now differ, and a paired
+% comparison needs identical inputs. Filters off matches the current
+% unclustered configuration, and the ablation found them worth -0.009 mean /
+% +0.000 median, i.e. nothing. Channel counts are derived, so this is the only
+% place to change it.
+cfg.Denoise        = [];
+cfg.Vessel.enabled = false;
+
 [folds, foldInfo] = cnngvf.cvFolds(cfg);
 k = numel(folds);
 
