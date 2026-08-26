@@ -80,7 +80,14 @@ cfg.Split.Exclude = strings(0, 1);
 % --- Vesselness channel ----------------------------------------------------
 % Second CNN input channel. Small thicknesses: RNV vessels are thin, and
 % ../docs/CLAUDE.md notes large scales blur the structure away entirely.
-cfg.Vessel.scales = [2 4 6 8];
+%
+% Vessel.enabled = false drops the channel, leaving the network 2 inputs
+% (intensity + seed heat-map) instead of 3. The channel count is derived
+% everywhere from cnngvf.loadChannels, so this is the only place to change it -
+% but a network trained with one setting CANNOT be used with the other, and
+% cnngvf.inferProbMap will error on the size mismatch rather than misbehave.
+cfg.Vessel.enabled = true;
+cfg.Vessel.scales  = [2 4 6 8];
 
 % --- CNN patches -----------------------------------------------------------
 % 512, not the spec's default 256, and it must stay divisible by

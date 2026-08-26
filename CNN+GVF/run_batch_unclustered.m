@@ -35,6 +35,12 @@ cfg.Paths.Model        = fullfile(fileparts(cfg.Paths.Model), 'rnvNet_unclustere
 cfg.Paths.Output       = fullfile(cfg.Paths.Output, 'unclustered');
 cfg.EvalMode           = "image";
 
+% Must match run_train_unclustered: no median filter, no vesselness channel,
+% so 2 input channels rather than 3. cnngvf.inferProbMap errors on a mismatch
+% instead of producing quiet nonsense.
+cfg.Denoise        = [];
+cfg.Vessel.enabled = false;
+
 if ~isfile(cfg.Paths.Localization)
     error('cnngvf:runBatchUnclustered:noCsv', ...
         'Unclustered points not found: %s', cfg.Paths.Localization);

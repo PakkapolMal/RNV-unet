@@ -43,6 +43,12 @@ end
 cfg.Paths.LocalizationTrain = fullfile(cfg.Paths.Img, 'DRAC_RNV_Points_Unclustered.csv');
 cfg.Paths.Model = fullfile(fileparts(cfg.Paths.Model), 'rnvNet_unclustered.mat');
 
+% No median filter, no vesselness channel: the network sees raw intensity plus
+% the seed heat-map, 2 inputs instead of 3. run_batch_unclustered sets the same
+% two flags - they must match or inference errors on the channel count.
+cfg.Denoise        = [];
+cfg.Vessel.enabled = false;
+
 % 137 usable training seeds instead of 30, so keep the epoch the same size and
 % let the extra seeds buy variety rather than a 4.6x longer run: 137 x 4 = 548
 % patches per epoch against run_train's 30 x 16 = 480. Total samples over 30

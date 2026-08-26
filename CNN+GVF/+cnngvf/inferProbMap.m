@@ -25,9 +25,22 @@ if n == 0
     return;
 end
 
-X    = zeros(p, p, 3, n, 'single');
+% C+1: the channel stack plus the seed heat-map seedPatch appends. Derived,
+% not assumed, so dropping the vesselness channel needs no change here.
+nIn  = size(chans, 3) + 1;
+X    = zeros(p, p, nIn, n, 'single');
 rows = zeros(n, p);
 cols = zeros(n, p);
+
+% A network is tied to the channel count it trained with. Catch the mismatch
+% here with a readable message instead of letting predict fail obscurely.
+expected = net.Layers(1).InputSize(3);
+if expected ~= nIn
+    error('cnngvf:inferProbMap:channelMismatch', ...
+        ['The network expects %d input channels but this cfg builds %d.\n' ...
+         'cfg.Vessel.enabled is %d - it must match the setting the network ' ...
+         'was trained with.'], expected, nIn, cfg.Vessel.enabled);
+end
 for s = 1:n
     [X(:, :, :, s), rows(s, :), cols(s, :)] = ...
         cnngvf.seedPatch(chans, seeds(s, :), seeds(s, :), cfg);

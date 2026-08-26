@@ -175,6 +175,10 @@ info.valSeeds       = nnz(valSeed);
 info.patchesPerEpoch = numel(trainIdx);
 info.balanceByImage  = cfg.Patch.balanceByImage;
 
+% Channel stack plus the seed heat-map. trainNet sizes the network from this
+% rather than assuming 3, so cfg.Vessel.enabled needs no change there.
+info.numChannels = size(chans{1}, 3) + 1;
+
 % Patches drawn per training image this epoch, so a run's record shows how the
 % epoch was actually spent rather than only how many patches it held.
 trainImageIdx = unique(imgIdx(~valSeed))';

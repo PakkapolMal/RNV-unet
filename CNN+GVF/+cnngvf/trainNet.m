@@ -30,7 +30,19 @@ if cfg.UseGpu
     gpuDevice(1);
 end
 
-net = unet([cfg.Patch.size cfg.Patch.size 3], 2, ...
+if cfg.Vessel.enabled
+    chanDesc = "intensity + vesselness + seed heat-map";
+else
+    chanDesc = "intensity + seed heat-map";
+end
+fprintf('Input channels : %d (%s)\n', info.numChannels, chanDesc);
+if isempty(cfg.Denoise)
+    fprintf('Denoise        : none\n');
+else
+    fprintf('Denoise        : median %s\n', mat2str(cfg.Denoise));
+end
+
+net = unet([cfg.Patch.size cfg.Patch.size info.numChannels], 2, ...
     EncoderDepth = cfg.Net.encoderDepth);
 
 opts = trainingOptions("adam", ...
