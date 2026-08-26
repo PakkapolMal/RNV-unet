@@ -69,6 +69,15 @@ cfg.EvalMode = "image";   % the union mask vs FilledGT; the unit both arms share
 cfg.Denoise        = [];
 cfg.Vessel.enabled = false;
 
+% 20 epochs, not the 30 a single training run uses. Cross-validation pays for
+% training k times, and at 41 ground-truth images a fold is ~715 patches per
+% epoch: 30 epochs would be 3.6 h per fold and 17.9 h for the arm, against
+% ~12 h at 20. OutputNetwork="best-validation" keeps the best checkpoint, so
+% the cost of stopping earlier is accuracy at the margin rather than a broken
+% run - but it does mean a CV figure measures a slightly less-trained network
+% than run_train_unclustered deploys, and will if anything understate it.
+cfg.Net.epochs = 20;
+
 [folds, foldInfo] = cnngvf.cvFolds(cfg);
 k = numel(folds);
 
