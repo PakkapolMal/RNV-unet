@@ -1,4 +1,21 @@
+---
+title: RNV Segmentation via GVF — Original Design Specification
+description: The original two-approach design study, written before implementation. Superseded as a specification; retained for its literature review, parameter tables and rationale.
+kind: design-study
+status: historical
+dataset: n/a — written before any dataset was measured
+updated: 2026-08-11
+---
+
 # RNV Segmentation via Gradient Vector Flow (GVF) on OCTA En-Face Images — MATLAB Implementation Specification
+
+> **Historical.** This is the design study the implementation started from, not a
+> description of what was built. Several of its recommendations were measured and
+> reversed — `f = P` as a force source, a balloon term of ±1.5, a 256 px patch — and
+> the module layout it proposes is not the one that exists. The working
+> specification is [UNCLUSTERED.md](UNCLUSTERED.md); the vocabulary is
+> [CONTEXT.md](CONTEXT.md). Kept for the literature review, the parameter ranges and
+> the reasoning behind the overall architecture, all of which still hold.
 
 ## TL;DR
 - Two GVF pipelines are specified. **Approach 1 (CNN probability map → GVF refinement) is the recommended optimal path**; a patch-based U-Net trained around localized (x,y) seeds produces a smooth probability map, and a GVF/GGVF snake or GVF-driven DRLSE level set refines each lesion's boundary. Approach 2 (GVF as model-agnostic post-processing) is the recommended fallback/baseline when labeled data is scarce.

@@ -37,13 +37,16 @@ function [perUnit, summary] = evaluate(results, cfg)
 %
 %  See also RNV.METRICS, CNNGVF.SEGGTFILE, RUN_BATCH.
 
+M = cnngvf.manifest(cfg);
+
 switch cfg.EvalMode
     case "segment"
-        [perUnit, missing] = scoreSegments(results, cfg);
-        unclaimed = unclaimedGtPixels(results, cfg);
+        requireSegmentable(cfg, M);
+        [perUnit, missing] = scoreSegments(results, cfg, M);
+        unclaimed = unclaimedGtPixels(results, cfg, M);
 
     case "image"
-        [perUnit, missing] = scoreImages(results, cfg);
+        [perUnit, missing] = scoreImages(results, cfg, M);
         unclaimed = 0;   % the whole mask is the target; nothing is excluded
 
     otherwise
@@ -61,6 +64,13 @@ summary = struct( ...
     'unclaimedGtPx',  unclaimed, ...
     'missingGtFiles', numel(missing));
 
+% Per-dataset breakout. The protocol pools datasets deliberately, but a pooled
+% mean over two devices is not interpretable on its own - and this costs one
+% groupsummary on a table that already exists, so there is no reason to make
+% anyone re-run a job to get it.
+summary.perDataset = groupsummary(perUnit, 'Dataset', 'mean', ...
+    {'Iou', 'F1', 'Precision', 'Recall'});
+
 if ~isempty(missing)
     warning('cnngvf:evaluate:missingGt', ...
         '%d ground-truth file(s) missing and not scored. First: %s', ...
@@ -73,12 +83,35 @@ end
 % LOCAL FUNCTIONS
 % =========================================================================
 
-function [T, missing] = scoreSegments(results, cfg)
+function requireSegmentable(cfg, M)
+%REQUIRESEGMENTABLE EvalMode "segment" needs per-seed masks, which only DRAC22
+%  has - and only for the clustered coordinates they are named after. Fail with
+%  the reason rather than scoring every TUH seed against a missing file and
+%  reporting it as a warning at the end.
+noSeg = unique(M.Dataset(strlength(M.SegGtDir) == 0));
+if ~isempty(noSeg)
+    error('cnngvf:evaluate:notSegmentable', ...
+        ['EvalMode "segment" needs per-seed ground truth, which dataset(s) %s ' ...
+         'do not have.\nUse EvalMode "image", or restrict the domain with ' ...
+         'cfg.ActiveDatasets = "DRAC22".'], strjoin(noSeg', ', '));
+end
+if cfg.Points ~= "clustered"
+    error('cnngvf:evaluate:notSegmentable', ...
+        ['EvalMode "segment" is only valid for the clustered centres: the ' ...
+         'SegmentFilledGT files are keyed to those coordinates. This run uses ' ...
+         'the "%s" points, several of which land on one lesion, so per-segment ' ...
+         'scoring would count that lesion once per detection.'], cfg.Points);
+end
+end
+
+
+function [T, missing] = scoreSegments(results, cfg, M)
 rows = {};
 missing = strings(0, 1);
 
 for i = 1:numel(results)
     r = results(i);
+    ds = datasetOf(M, r.image);
     for s = 1:size(r.seeds, 1)
         gtPath = cnngvf.segGtFile(cfg, r.image, r.seeds(s, :));
         gt = rnv.loadMask(gtPath);
@@ -93,27 +126,32 @@ for i = 1:numel(results)
         end
         m = rnv.metrics(pred, gt);
 
-        rows(end + 1, :) = {r.image, r.seeds(s, 1), r.seeds(s, 2), ...
+        rows(end + 1, :) = {r.image, ds, r.seeds(s, 1), r.seeds(s, 2), ...
             m.iou, m.f1, m.precision, m.recall, nnz(pred), nnz(gt)}; %#ok<AGROW>
     end
 end
 
 T = cell2table(rows, 'VariableNames', ...
-    {'Image', 'X', 'Y', 'Iou', 'F1', 'Precision', 'Recall', 'PredPx', 'GtPx'});
-T.Image = string(T.Image);
+    {'Image', 'Dataset', 'X', 'Y', 'Iou', 'F1', 'Precision', 'Recall', 'PredPx', 'GtPx'});
+T.Image   = string(T.Image);
+T.Dataset = string(T.Dataset);
 end
 
 
-function [T, missing] = scoreImages(results, cfg)
+function [T, missing] = scoreImages(results, ~, M)
 rows = {};
 missing = strings(0, 1);
 
 for i = 1:numel(results)
     r = results(i);
-    gtPath = fullfile(cfg.Paths.GT, char(r.image));
-    gt = rnv.loadMask(gtPath);
+    k = find(M.Name == r.image, 1);
+    if isempty(k)
+        missing(end + 1, 1) = r.image; %#ok<AGROW>
+        continue;
+    end
+    gt = rnv.loadMask(M.GtPath(k));
     if isempty(gt)
-        missing(end + 1, 1) = string(gtPath); %#ok<AGROW>
+        missing(end + 1, 1) = M.GtPath(k); %#ok<AGROW>
         continue;
     end
 
@@ -123,23 +161,38 @@ for i = 1:numel(results)
     end
     m = rnv.metrics(pred, gt);
 
-    rows(end + 1, :) = {r.image, size(r.seeds, 1), ...
+    rows(end + 1, :) = {r.image, M.Dataset(k), size(r.seeds, 1), ...
         m.iou, m.f1, m.precision, m.recall, nnz(pred), nnz(gt)}; %#ok<AGROW>
 end
 
 T = cell2table(rows, 'VariableNames', ...
-    {'Image', 'Seeds', 'Iou', 'F1', 'Precision', 'Recall', 'PredPx', 'GtPx'});
-T.Image = string(T.Image);
+    {'Image', 'Dataset', 'Seeds', 'Iou', 'F1', 'Precision', 'Recall', 'PredPx', 'GtPx'});
+T.Image   = string(T.Image);
+T.Dataset = string(T.Dataset);
 end
 
 
-function px = unclaimedGtPixels(results, cfg)
+function ds = datasetOf(M, imgName)
+k = find(M.Name == imgName, 1);
+if isempty(k)
+    ds = "unknown";
+else
+    ds = M.Dataset(k);
+end
+end
+
+
+function px = unclaimedGtPixels(results, cfg, M)
 % Ground-truth pixels in FilledGT that no seed's segment file covers, i.e.
 % lesions the localization stage never pointed at. Reported so a good
 % per-segment score is not mistaken for full coverage of the image.
 px = 0;
 for i = 1:numel(results)
-    filled = rnv.loadMask(fullfile(cfg.Paths.GT, char(results(i).image)));
+    k = find(M.Name == results(i).image, 1);
+    if isempty(k)
+        continue;
+    end
+    filled = rnv.loadMask(M.GtPath(k));
     if isempty(filled)
         continue;
     end

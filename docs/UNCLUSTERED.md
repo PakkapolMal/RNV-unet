@@ -1,12 +1,68 @@
+---
+title: RNV Segmentation Pipeline — Specification
+description: The working specification of the CNN+GVF pipeline — architecture, contracts, parameters, and the measurement behind every non-obvious choice.
+kind: specification
+status: current
+dataset: DRAC22 + TUH (68 images)
+updated: 2026-08-31
+---
+
 # RNV Segmentation from Unclustered Localization Points — Specification
 
-The best-performing configuration in this repo, with the measurement behind every
-non-obvious choice. Implementation: [`../CNN+GVF/`](../CNN+GVF/). Theory: [CLAUDE.md](CLAUDE.md).
-Original design: [spec.md](spec.md).
+The working specification: how the pipeline is wired, what it assumes, and the
+measurement behind every non-obvious choice. Implementation:
+[`../CNN+GVF/`](../CNN+GVF/). Vocabulary: [CONTEXT.md](CONTEXT.md). Theory:
+[CLAUDE.md](CLAUDE.md). Original design: [spec.md](spec.md).
+
+> **Filename note.** This file is named for the unclustered detections because
+> that was the finding it was created to record. It is now the general
+> specification, covering both datasets and every arm.
+
+## The domain
+
+**68 images across two datasets**, pooled. Every image with ground truth is in
+scope; `cnngvf.manifest` is the single place that says so.
+
+| | images | points (unclustered) | usable | off-lesion | GT area range |
+|---|---|---|---|---|---|
+| **DRAC22** | 41 | 283 | 234 | 49 (17.3%) | 2 016 – 239 227 px |
+| **TUH** | 27 | 591 | 558 | 33 (5.6%) | 1 106 – 432 533 px |
+| **combined** | **68** | **874** | **793** | 81 (9.3%) | 1 106 – 432 533 px |
+
+Both are OCTA en-face, 1024×1024, but from **different devices** — DRAC22 as
+distributed by the DRAC 2022 challenge, TUH from a ZEISS PLEX Elite. TUH
+localization is markedly cleaner (5.6% of detections off-lesion against 17.3%),
+and its lesions run larger: `nv (21).png` is 41% of the frame and carries 113 of
+its dataset's 591 detections.
+
+Folds are **pooled across datasets**, not stratified by device. The research
+question is RNV segmentation, not per-device performance, so a fold is not
+restricted to one device. Area-stratified round-robin dealing interleaves them
+in practice — every fold currently holds both — and `per_image.csv` carries a
+`Dataset` column so a pooled run can be broken out afterwards without re-running.
+
+### The TUH acquisition overlay
+
+Every TUH image carries burned-in device graphics: a **magenta vertical and cyan
+horizontal crosshair spanning the whole frame**, plus a corner watermark. After
+`rgb2gray` these become bright, perfectly straight, high-gradient lines — the
+shape a vesselness filter and a `|∇P|` force field are most drawn to — and they
+cross the middle of the frame where lesions are.
+
+**They are deliberately left in.** They are removable (colored pixels are
+trivially separable in RGB, before the grayscale conversion discards the
+information) and that option stays open, but nothing here removes them today.
+If a combined run shows straight-line false positives, this is the first
+suspect, and the fix is a masking step in `rnv.loadImage` before `rgb2gray`.
 
 ## Result
 
-### Current configuration, full dataset
+> **Every number below was measured on DRAC22 alone, before TUH existed.**
+> They are the frozen record of the `unclustered` arm. No combined-domain
+> figure has been measured yet — `run_cv("DRACTUH_unclustered")` produces the
+> first one.
+
+### DRAC22-only configuration, full dataset *(superseded scope)*
 
 Unclustered detections, balanced sampling, **no median filter, no vesselness** (2 input
 channels), 20 epochs. 5-fold cross-validated, every image scored out-of-sample:
@@ -280,32 +336,36 @@ two ground-truth files would.
 
 ## Specification
 
-All values from [`+cnngvf/defaults.m`](../CNN+GVF/+cnngvf/defaults.m); `run_train_unclustered`
-overrides `perSeed`.
+All values from [`+cnngvf/defaults.m`](../CNN+GVF/+cnngvf/defaults.m); per-arm overrides live
+in [`+cnngvf/arm.m`](../CNN+GVF/+cnngvf/arm.m).
 
 ### Data
 
 | item | value |
 |---|---|
-| images | 1024×1024 OCTA en-face, `RNV-DRAC22NV/` — **41 with ground truth**, 39 of which carry seeds |
-| training seeds | `DRAC_RNV_Points_Unclustered.csv` — 281 rows, 232 usable (49 fall outside every lesion) |
+| images | 1024×1024 OCTA en-face — **68 with ground truth**, all seeded (41 DRAC22 + 27 TUH) |
+| training seeds | the unclustered CSVs of both datasets — 874 rows, 793 usable (81 fall outside every lesion) |
 | inference seeds | same |
-| labels | the `FilledGT` connected component containing each seed |
-| scoring | union mask vs whole `FilledGT/<stem>.png` (`EvalMode = "image"`) |
+| labels | the whole-image GT connected component containing each seed |
+| scoring | union mask vs the whole GT mask (`EvalMode = "image"`) |
 
-The dataset grew from 17 to 41 ground-truth images during development. `cnngvf.prepareData`
-and `cnngvf.cvFolds` both scan the ground-truth directory, so nothing needs updating when
-images are added — but **`SegmentFilledGT/` still covers only the original 17**, so
-`EvalMode = "segment"` fails on the newer ones until `separate_segments.py` is re-run. The
-unclustered arm scores whole-image and is unaffected.
+`cnngvf.manifest` defines the domain by scanning each dataset's image directory and keeping
+what has a mask, so adding images needs no code change. Adding a *dataset* needs one entry in
+`cfg.Datasets`.
 
-Any figure measured before the dataset grew is not comparable with one measured after. The
-cross-validated 0.4163 was measured on 17 images.
+**`EvalMode = "segment"` is fenced to DRAC22 + clustered points.** TUH ships no per-seed
+masks, and `SegmentFilledGT/` covers only the original 17 DRAC22 images, so
+`cnngvf.evaluate` now errors with the reason rather than silently scoring against missing
+files. No current arm uses it; it is kept so the original baseline stays reproducible.
+
+Any figure measured before the domain changed is not comparable with one measured after. The
+cross-validated 0.4163 was measured on 17 images, the 0.4603 on 41, and neither on 68.
 
 Labels are computed by component lookup, not read from `SegmentFilledGT/`. Verified to
-reproduce all 35 segment files exactly, and it works for point sets those files are not keyed
-to. Seeds landing outside every lesion (24 of 185) are dropped from training — labelling them
-against pure background would teach the network to ignore its own heat-map.
+reproduce all 35 DRAC22 segment files exactly, and it works for point sets those files are not
+keyed to — which is what lets both the unclustered detections and TUH be trained on at all.
+Seeds landing outside every lesion are dropped from training: labelling them against pure
+background would teach the network to ignore its own heat-map.
 
 **Scoring must be whole-image, not per-segment.** Several detections land on one lesion, so
 per-segment scoring would count that lesion once per detection and weight lesions by how many
@@ -313,13 +373,20 @@ detections they attracted. Whole-image scoring also charges for lesions missed e
 
 ### Input channels
 
-| channel | source |
-|---|---|
-| 1 | intensity, median-filtered `[3 3]` |
-| 2 | Frangi vesselness, `fibermetric` scales `[2 4 6 8]` |
-| 3 | Gaussian seed heat-map, `sigmaSeed = 32` |
+Derived from `cnngvf.loadChannels`, never assumed. The current arms build **2**:
+
+| channel | source | enabled by |
+|---|---|---|
+| 1 | intensity, optionally median-filtered `[3 3]` | always; filter by `cfg.Denoise` |
+| 2 | Frangi vesselness, `fibermetric` scales `[2 4 6 8]` | `cfg.Vessel.enabled` — **off** in current arms |
+| last | Gaussian seed heat-map, `sigmaSeed = 32` | always, appended per patch |
 
 Small vesselness scales because RNV vessels are thin; large scales blur the structure away.
+Both filters measured ≈0 (see the ablation above) and are off.
+
+**A network is tied to the channel count it trained with.** `cnngvf.inferProbMap` compares
+`net.Layers(1).InputSize(3)` and errors readably. The pairing is set once per arm, which is
+what stops a runner disagreeing with the network it loads.
 
 ### Patches and sampling
 
@@ -327,13 +394,18 @@ Small vesselness scales because RNV vessels are thin; large scales blur the stru
 |---|---|---|
 | `Patch.size` | **512** | 13 of 35 GT segments need a window > 256 px, and each scored badly at 256. At 512, 32 of 35 are fully covered. |
 | `Patch.jitter` | ±32 px | crop offset; the heat-map marks the seed, not the patch centre |
-| `Patch.perSeed` | **4** | set by `run_train_unclustered`; 4 crops × 137 seeds matches the clustered arm's 16 × 30 |
+| `Patch.perSeed` | **1** (combined arm) | with `balanceByImage` the epoch is ≈ `perSeed × usable seeds`. At 793 seeds, `perSeed = 4` would be ~3 170 patches/epoch against DRAC22's ~940 — tripling every run and pushing a 5-fold CV from ~4 h to ~13 h. Nothing measured says 4 beats 1; it only ever existed to hold epoch size constant, which 1 now does. |
 | `Patch.balanceByImage` | **true** | equal patches per *image*, not per seed |
 
-**`balanceByImage` matters here and nowhere else.** Detection counts track lesion size, so
-sampling uniformly per seed gave `1115.png` 39% of the epoch and the top two images 54%. The
-budget is drawn **with replacement from each image's own seeds** — taking the first *N* would
-pin a seed-rich image to the same subset in CSV order for the whole run.
+**`balanceByImage` does two jobs on the combined domain.** Within a dataset it stops
+detection-rich images dominating: sampling uniformly per seed once gave `1115.png` 39% of the
+epoch and the top two images 54%. Across datasets it decides the mix — TUH holds 70% of the
+usable detections but only 40% of the images, so per-image balancing gives it **40% of the
+epoch, not 70%**. That is intended (an image is one observation regardless of how many times
+the detector fired), but it is a choice, and the opposite one is a flag away.
+
+The budget is drawn **with replacement from each image's own seeds** — taking the first *N*
+would pin a seed-rich image to the same subset in CSV order for the whole run.
 
 ### Network
 
@@ -399,45 +471,164 @@ not), and it was measured on the weakest model.
 
 ```matlab
 cd RNV-Claude/CNN+GVF
-test_cnngvf                % 6 checks, synthetic, no dataset or model needed
+test_cnngvf                            % 8 checks; the last two need the datasets
 
-run_train_unclustered      % -> models/rnvNet_unclustered.mat  (~2.5 h)
-run_batch_unclustered      % -> result/unclustered/            (~4 min)
+run_train                              % combined arm -> models/rnvNet_DRACTUH_unclustered.mat
+run_batch("DRACTUH_unclustered")       % -> result/DRACTUH_unclustered/
+run_cv                                 % the defensible number, 5 folds over 68 images
 
-run_eval(fullfile(cfg.Paths.Output,'unclustered'), cfg)   % re-score, ~1 s, no GPU
+run_steps("458.png")                   % every intermediate, one DRAC22 image
+run_steps("nv (21).png")               % ... or one TUH image
 
-run_cv('unclustered')      % the defensible number (~8 h)
-run_cv('clustered')        % the paired baseline   (~10 h)
+run_train("unclustered")               % the frozen DRAC22-only arm
+run_eval(dir)                          % re-score cached masks, ~1 s, no GPU
 ```
+
+`run_train`, `run_batch`, `run_cv`, `run_eval` and `run_steps` all take an **arm name**.
+`run_train_unclustered` and `run_batch_unclustered` survive as thin wrappers on the
+DRAC22-only arm.
 
 **MATLAB R2026a.** Needs Image Processing, Deep Learning, Computer Vision and Parallel
 Computing. R2025b on this machine has Image Processing only and fails immediately with a
 message from `cnngvf.defaults`.
 
+## Architecture
+
+### Data contracts
+
+Five, none enforced by a type.
+
+**Seeds are `[cx cy]` = (column, row).** `rnv.loadSeeds` reads columns *positionally*, so a
+header may be renamed but not reordered. Every consumer flips to `(row, col)` at the point of
+use. Getting this backwards is silent: a transposed seed still lands inside the image and
+still produces a mask.
+
+**An image is addressed by name, resolved through the manifest.** `cnngvf.manifest` maps a
+name to its image file, its mask and its dataset. Names must be unique across datasets — they
+are the join key for the CSVs and for output filenames — and a collision is an error, not a
+mask silently scored against the wrong image. The image → mask rule is per-dataset data
+(`GtFrom`/`GtTo`, a regexprep on the stem): identity for DRAC22, `nv (N)` → `gt (N)` for TUH.
+
+**Ground-truth labels are computed, not read.** A seed is labelled with the GT connected
+component it falls in. That is what lets point sets with no per-seed files be trained on.
+
+**`cfg.EvalMode` picks the unit, and the units are not comparable.** On identical predictions,
+recall falls 0.681 → 0.527 purely from the mode change. `"segment"` is fenced to DRAC22 +
+clustered points.
+
+**`run_batch` clears its output directories before writing.** Per-seed masks are named by
+coordinates, so a changed CSV would otherwise leave two generations side by side — and
+`run_eval` recovers seeds from those filenames.
+
+### Control flow
+
+One image, one call — `cnngvf.segmentImage`:
+
+```
+imgPath ──► loadChannels ──► chans (h x w x C)
+                               │
+seeds (S x 2) ─────────────────┼──► inferProbMap ──► P        [seedPatch per seed]
+                               │                      │
+                               │        buildForce ◄──┤        f = |∇P|
+                               │             │        │
+                               │         gvfField     └──► initPhi ──► phi0
+                               │          (u,v)                 │
+                               └──────────────► drlse ◄─────────┘
+                                                  │
+                     imclose ──► imfill ──► seedMasks ──► mask + perSeed{}
+```
+
+Nine stages, one file each, all taking `cfg`. Above them sit three domain files:
+`manifest` (which images), `loadPoints` (which seeds), `arm` (which configuration).
+
+`inferProbMap` is where seed-conditioning lives: seeds are the only patch centres, so anywhere
+no seed reaches stays `P = 0` by design. `drlse` is why there is no per-lesion bookkeeping —
+one `φ` holds every lesion and splits natively. `seedMasks` is called twice with different
+`minArea`, which is why it is a parameter: at initialization a small blob is a lesion that has
+not grown, after evolution it is noise.
+
+### Arms
+
+An arm is one comparable configuration, defined once in `+cnngvf/arm.m`:
+
+| arm | datasets | points | channels | perSeed | output |
+|---|---|---|---|---|---|
+| `clustered` | DRAC22 | clustered | 3 | 16 | `result/` |
+| `unclustered` | DRAC22 | unclustered | 2 | 4 | `result/unclustered/` |
+| **`DRACTUH_unclustered`** | DRAC22 + TUH | unclustered | 2 | 1 | `result/DRACTUH_unclustered/` |
+
+Everything that must agree between training and inference is set here. That is the point:
+`run_train` and `run_train_unclustered` were once near-copies that drifted apart on the
+channel flags — a mismatch a network cannot survive — and `run_steps` was left behind by the
+same change for weeks. A runner now asks for an arm by name and cannot disagree with another
+runner about what it means. Adding a configuration means one table entry, not a new file.
+
+Arms over the **same** domain share folds and compare paired image-by-image. Arms over
+different domains do not: `unclustered` is 41 images, `DRACTUH_unclustered` is 68.
+
+### Invariants that fail silently
+
+- **The seed heat-map must track the seed through the training jitter.** If the seed always sat
+  at the patch centre the channel would be constant, therefore ignorable, and the network would
+  learn a plain segmenter instead of a seed-conditioned one. `test_cnngvf` asserts the peak
+  position for exactly this reason.
+- **`OutputNetwork="best-validation"` selects on `cfg.Split.Val`.** Those images are *not* held
+  out. Quoting them as validation inflated one estimate by +0.089.
+- **`Split.Val` is derived, never written down.** The old literal list of four DRAC22 files
+  survived the dataset growing to 41 and TUH arriving, still validating on the same four and on
+  none of TUH. `cnngvf.valSplit` now spreads the picks across the area range *and* across
+  datasets, and `test_cnngvf` asserts every dataset is represented.
+- **Inner-validation picks must be interior, not the head of the area-sorted list.** Taking the
+  head hands checkpoint selection the largest lesions; in a one-epoch dry run that made a fold
+  keep its untrained network and predict 0 px on every held-out image.
+- **`balanceByImage` draws with replacement.** Taking the first *N* would pin a seed-rich image
+  to the same CSV-order subset for the whole run.
+- **Every score is tied to the CSVs in place when it was measured.** They live outside version
+  control and have been revised repeatedly.
+
+### Environment
+
+`gpuDevice` enumerates CUDA devices only, so an onboard Intel GPU never appears; `cfg.GpuName`
+is printed by every runner so the device is on the record. At patch 512 an 8 GB card has little
+headroom — `miniBatch` 4 died out of memory at iteration 0, so it is 2 (validation follows
+`MiniBatchSize`; `trainingOptions` exposes no `ValidationMiniBatchSize` for `adam`), and
+`trainNet` calls `gpuDevice(1)` first so a stale allocation cannot starve the run. No `parfor`:
+several workers contending for one laptop GPU is slower than serial. The GVF mex in
+`lib/Fast-Gradient-Vector-Flow` is the fast path; `cnngvf.gvfField` falls back to a vectorised
+MATLAB loop with a warning, and `mex GVF.cpp` restores it.
+
 ## Reporting rules
 
-1. **Quote cross-validated numbers only.** `run_batch` scores all 17 images but 13 trained the
-   model.
+1. **Quote cross-validated numbers only.** `run_batch` scores every domain image, but most of
+   them trained the model.
 2. **Never quote a single-split "validation" score as held-out.** `OutputNetwork="best-validation"`
    selects the checkpoint on `cfg.Split.Val`, so those images are not held out. Doing this
    inflated one estimate by +0.089 (`461.png`: 0.731 single-split vs 0.307 cross-validated).
 3. **Do not compare across protocols.** A CV number and a single-split number are not
    comparable in either direction.
-4. **Every score is tied to the CSV in place when it was measured.** The localization files
-   have been revised three times and live outside version control.
+4. **Do not compare across domains.** 17-image, 41-image and 68-image figures are three
+   different questions. State the domain with every number.
+5. **Every score is tied to the CSVs in place when it was measured.** The localization files
+   have been revised repeatedly and live outside version control.
 
 ## Known limits and next steps
 
-- **17 ground-truth images.** Thin for a U-Net; [spec.md](spec.md) suggests pretraining on
-  ROSE or OCTA-500.
-- **Precision is the weak side** (0.721 vs the baseline's 0.797). Four images regress under
-  CV, worst `573.png` (−0.200) and `641.png` (−0.123); the failure mode is over-segmentation.
-- **24 of 185 detections lie outside every lesion.** Dropped in training, but still generating
+- **No combined-domain number exists yet.** `run_cv` on `DRACTUH_unclustered` produces the
+  first one. Every figure in this document is DRAC22-only.
+- **The TUH acquisition overlay is still in the images.** Straight-line false positives are the
+  symptom to watch for; masking before `rgb2gray` is the fix.
+- **`perSeed = 1` is a runtime choice, not a measured one.** Re-measure against 4 once the
+  combined domain is known to train.
+- **Precision is the weak side** (0.721 vs the clustered baseline's 0.797); the failure mode is
+  over-segmentation.
+- **81 of 874 detections lie outside every lesion.** Dropped in training, but still generating
   patches at inference where they can only add false positives. Filtering them at inference is
-  untried — though an *oracle* filter on the single-split run was worth only +0.015, so the
-  ceiling is low.
+  untried — an *oracle* filter was worth only +0.015, so the ceiling is low.
 - **Post-processing is exhausted.** The pipeline already beats an oracle that picks the best
   threshold per image (0.5315 vs 0.5068). Effort belongs in the probability map.
-- **The balanced-sampling gain is unverified.** Both CV arms used it, so they measure the
-  unclustered effect, not the balancing effect. Isolating it needs its own CV pair.
-- **Four segments exceed even a 512 px window.** Only full-image tiled inference reaches them.
+- **The balanced-sampling gain is unverified.** Both DRAC22 CV arms used it, so they measure the
+  unclustered effect, not the balancing effect.
+- **Lesions exceed even a 512 px window** — four in DRAC22, and TUH's `nv (21)` at 41% of the
+  frame is far worse. Only full-image tiled inference reaches them.
+- **68 ground-truth images** is still thin for a U-Net; [spec.md](spec.md) suggests pretraining
+  on ROSE or OCTA-500.

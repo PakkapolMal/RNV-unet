@@ -1,0 +1,97 @@
+function [names, seeds] = loadPoints(cfg, which)
+%CNNGVF.LOADPOINTS Localization points across every active dataset.
+%
+%  [names, seeds] = cnngvf.loadPoints(cfg)            % cfg.Points
+%  [names, seeds] = cnngvf.loadPoints(cfg, "clustered" | "unclustered")
+%
+%  names : N x 1 string, image file name per point
+%  seeds : N x 2 double, [cx cy] = (column, row)
+%
+%  Each dataset keeps its own CSV, so this reads one per active dataset and
+%  concatenates. rnv.loadSeeds does the actual parsing - columns are read
+%  positionally, so a header rename is harmless but a column reorder is not.
+%
+%  Points naming an image outside the manifest are dropped, with a count. That
+%  is normal rather than exceptional: a localization CSV covers whatever the
+%  detector was run on, which is not necessarily the set that has ground truth.
+%
+%  "clustered" points are DBSCAN representatives, one per lesion; "unclustered"
+%  are the raw detections behind them. Only DRAC22 has per-seed ground truth
+%  keyed to its clustered coordinates, which is why cnngvf.evaluate fences
+%  EvalMode "segment" to that dataset.
+%
+%  See also RNV.LOADSEEDS, CNNGVF.MANIFEST, CNNGVF.ARM.
+
+if nargin < 2 || strlength(which) == 0
+    which = cfg.Points;
+end
+which = lower(string(which));
+
+switch which
+    case "clustered",   field = 'Clustered';
+    case "unclustered", field = 'Unclustered';
+    otherwise
+        error('cnngvf:loadPoints:badSet', ...
+            'Unknown point set "%s". Use "clustered" or "unclustered".', which);
+end
+
+names = strings(0, 1);
+seeds = zeros(0, 2);
+
+for d = 1:numel(cfg.Datasets)
+    Ds = cfg.Datasets(d);
+    if ~any(cfg.ActiveDatasets == Ds.Name)
+        continue;
+    end
+
+    csv = Ds.(field);
+    if strlength(csv) == 0
+        error('cnngvf:loadPoints:noCsvField', ...
+            'Dataset "%s" defines no %s point set.', Ds.Name, which);
+    end
+    if ~isfile(csv)
+        error('cnngvf:loadPoints:noCsv', ...
+            'Dataset "%s": %s points not found at %s', Ds.Name, which, csv);
+    end
+
+    % rnv.loadSeeds reads one CSV from cfg.Paths.Localization. Reuse it per
+    % dataset rather than reimplementing the parse.
+    dc = cfg;
+    dc.Paths.Localization = csv;
+    [n, s] = rnv.loadSeeds(dc);
+
+    names = [names; n];   %#ok<AGROW>
+    seeds = [seeds; s];   %#ok<AGROW>
+end
+
+% Keep only points whose image is in the domain.
+M    = cnngvf.manifest(cfg);
+keep = ismember(names, M.Name);
+if ~all(keep)
+    dropped = unique(names(~keep));
+    fprintf(['Dropped %d point(s) on %d image(s) outside the domain ' ...
+             '(no ground truth, or not in the active datasets): %s\n'], ...
+        nnz(~keep), numel(dropped), truncate(dropped));
+    names = names(keep);
+    seeds = seeds(keep, :);
+end
+
+if isempty(names)
+    error('cnngvf:loadPoints:none', ...
+        'No %s points fall on any image in the domain (%s).', ...
+        which, strjoin(cfg.ActiveDatasets, ', '));
+end
+end
+
+
+% =========================================================================
+% LOCAL FUNCTIONS
+% =========================================================================
+
+function s = truncate(items)
+if numel(items) > 6
+    s = strjoin(items(1:6)', ', ') + sprintf(", ... (+%d more)", numel(items) - 6);
+else
+    s = strjoin(items', ', ');
+end
+end

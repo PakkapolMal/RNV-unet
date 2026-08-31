@@ -26,6 +26,8 @@ function [perUnit, summary] = run_eval(resultDir, cfg)
 
 if nargin < 2
     cfg = cnngvf.defaults();
+elseif isstring(cfg) || ischar(cfg)
+    cfg = cnngvf.arm(cnngvf.defaults(), cfg);   % run_eval(dir, "DRACTUH_unclustered")
 end
 if nargin < 1 || isempty(resultDir)
     resultDir = cfg.Paths.Output;
@@ -70,6 +72,13 @@ if summary.nUnits > 0
         summary.nUnits, cfg.EvalMode, summary.meanIou, summary.medianIou, ...
         summary.meanF1, summary.medianF1);
     fprintf('Precision %.4f, Recall %.4f\n', summary.meanPrecision, summary.meanRecall);
+    if height(summary.perDataset) > 1
+        for i = 1:height(summary.perDataset)
+            fprintf('  %-8s n=%-3d IoU %.4f  F1 %.4f\n', ...
+                summary.perDataset.Dataset(i), summary.perDataset.GroupCount(i), ...
+                summary.perDataset.mean_Iou(i), summary.perDataset.mean_F1(i));
+        end
+    end
 else
     fprintf('Nothing scored - no matching ground truth.\n');
 end

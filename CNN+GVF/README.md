@@ -1,32 +1,73 @@
 # RNV-Claude/CNN+GVF
 
-Approach 1 of [../docs/spec.md](../docs/spec.md): a seed-conditioned U-Net predicts a
-probability map, the map drives a Gradient Vector Flow field, and a DRLSE level set evolves
-in that field to the final mask. Theory reference: [../docs/CLAUDE.md](../docs/CLAUDE.md).
+A seed-conditioned U-Net predicts a probability map, the map drives a Gradient Vector Flow
+field, and a DRLSE level set evolves in that field to the final mask.
+
+**Specification and measurements: [../docs/UNCLUSTERED.md](../docs/UNCLUSTERED.md).**
+Vocabulary: [../docs/CONTEXT.md](../docs/CONTEXT.md). Theory:
+[../docs/CLAUDE.md](../docs/CLAUDE.md). Original design study:
+[../docs/spec.md](../docs/spec.md).
+
+> **The measured numbers further down this file are DRAC22-only**, from before TUH was
+> added. They remain valid as history — the mechanisms they establish are
+> domain-independent — but the domain is now 68 images, and no combined figure has been
+> measured. Read UNCLUSTERED.md for the current picture.
 
 ```
 +cnngvf/                package - one stage per file, all take a cfg struct
-  defaults.m            config, path resolution, toolbox guard, GPU flag
+  defaults.m            config, dataset registry, toolbox guard, GPU flag
+  manifest.m            the image domain: name -> image, mask, dataset
+  loadPoints.m          localization points across every active dataset
+  arm.m                 named configurations (datasets, points, channels, paths)
+  valSplit.m            derive the validation split across datasets + area range
   loadChannels.m        image -> [intensity, Frangi vesselness]
   seedPatch.m           crop geometry + Gaussian seed heat-map (shared)
   prepareData.m         seeds -> train/val patch datastores
-  trainNet.m            unet + generalized Dice -> models/rnvNet.mat
+  trainNet.m            unet + generalized Dice -> the arm's model file
   inferProbMap.m        batched patch inference + windowed stitch -> P
   buildForce.m          P -> GVF energy field f
   gvfField.m            f -> GVF field (u,v)
   initPhi.m             P + seeds -> phi0
   drlse.m               level-set evolution in the GVF field
   seedMasks.m           split a mask into the component each seed claims
-  segGtFile.m           seed -> its SegmentFilledGT path
+  segGtFile.m           seed -> its SegmentFilledGT path (DRAC22 only)
+  cvFolds.m             deterministic area-stratified folds over the domain
   evaluate.m            scoring, per-segment or whole-image (cfg.EvalMode)
   segmentImage.m        all of the above, one image
-run_train.m             train from the clustered centres
-run_batch.m             segment the whole CSV and score it
-run_train_unclustered.m train from the raw unclustered detections
-run_batch_unclustered.m segment + score those, whole-image
+  writeSummary.m        run_summary.txt, shared by run_batch and run_eval
+run_train.m             train an arm            run_train("DRACTUH_unclustered")
+run_batch.m             segment + score an arm  run_batch("DRACTUH_unclustered")
+run_cv.m                k-fold, every image out-of-sample
+run_steps.m             one image, every intermediate written out
 run_eval.m              re-score cached masks, no GPU, no re-segmentation
-test_cnngvf.m           self-check (synthetic, no dataset, no trained model)
+test_cnngvf.m           self-check, 8 checks
+run_train_unclustered.m  ]  thin wrappers on the frozen DRAC22-only arm
+run_batch_unclustered.m  ]
+run_batch_unbalanced.m  score the archived pre-balancing network
 ```
+
+## The domain
+
+68 ground-truth images across two datasets, pooled:
+
+| dataset | images | unclustered points | usable | mask naming |
+|---|---|---|---|---|
+| DRAC22 | 41 | 283 | 234 | `458.png` -> `FilledGT/458.png` |
+| TUH | 27 | 591 | 558 | `nv (1).png` -> `nvGtImages/gt (1).png` |
+
+`cnngvf.manifest` is the single place that resolves an image to its mask, because the two
+datasets do not name them the same way. Adding a dataset is one entry in `cfg.Datasets`.
+
+## Arms
+
+| arm | datasets | points | channels | output |
+|---|---|---|---|---|
+| `clustered` | DRAC22 | clustered | 3 | `result/` |
+| `unclustered` | DRAC22 | unclustered | 2 | `result/unclustered/` |
+| **`DRACTUH_unclustered`** | DRAC22 + TUH | unclustered | 2 | `result/DRACTUH_unclustered/` |
+
+An arm fixes everything that has to agree between training and inference. All the runners
+take an arm name; `+cnngvf/arm.m` is the only file to edit to add one.
 
 ## Requirements
 
@@ -46,23 +87,26 @@ first so a stale allocation from an earlier run cannot starve it. Steady-state u
 ```matlab
 cd RNV-Claude/CNN+GVF
 
-test_cnngvf                     % verify the install first
+test_cnngvf                            % verify the install first
 
-% clustered centres, per-segment scoring
-run_train                       % ~5 min/epoch on an RTX 5050; 30 epochs ~2.5 h
-run_batch                       % ~13 s/image
+% the current arm: DRAC22 + TUH, 68 images
+run_train                              % -> models/rnvNet_DRACTUH_unclustered.mat
+run_batch("DRACTUH_unclustered")       % -> result/DRACTUH_unclustered/
+run_cv                                 % 5 folds, every image out-of-sample
 
-% raw unclustered detections, whole-image scoring  (the stronger result)
-run_train_unclustered           % -> models/rnvNet_unclustered.mat
-run_batch_unclustered           % -> result/unclustered/
+% inspect one image, every stage written out
+run_steps("458.png")                   % a DRAC22 image
+run_steps("nv (21).png")               % a TUH image
+
+% the frozen DRAC22-only arm
+run_train("unclustered")
+run_batch("unclustered")
 
 % re-score masks that already exist - no GPU, ~1 s instead of ~205 s
-cfg = cnngvf.defaults(); cfg.EvalMode = "image";
-run_eval(fullfile(cfg.Paths.Output, 'unclustered'), cfg);
+run_eval(fullfile(cnngvf.defaults().Paths.Output, 'DRACTUH_unclustered'));
 
-cfg = cnngvf.defaults();        % anything is overridable
-cfg.EvalMode     = "image";     % score the clustered run whole-image too
-cfg.Drlse.iter   = 600;
+cfg = cnngvf.arm(cnngvf.defaults(), "DRACTUH_unclustered");   % anything is overridable
+cfg.Drlse.iter = 600;
 run_batch(cfg);
 ```
 

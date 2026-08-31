@@ -1,21 +1,22 @@
-function out = run_steps(imageName)
-%RUN_STEPS Run the unclustered pipeline on ONE image, saving every stage.
+function out = run_steps(imageName, arm)
+%RUN_STEPS Run the pipeline on ONE image, saving every intermediate stage.
 %
-%  run_steps("458.png")
-%  run_steps 458                  % the .png is optional
-%  out = run_steps(...)           % also return every intermediate in a struct
+%  run_steps("458.png")                       % the current arm
+%  run_steps("nv (1).png")                    % a TUH image
+%  run_steps 458                              % the .png is optional
+%  run_steps("458.png", "unclustered")        % a specific arm
+%  out = run_steps(...)                       % also return every intermediate
 %
-%  Same configuration as run_batch_unclustered - the unclustered detections as
-%  seeds, models/rnvNet_unclustered.mat, whole-image scoring - so the final
-%  mask is identical to that image's mask in result/unclustered/. The
-%  difference is that every intermediate is written out instead of discarded.
+%  Configuration comes from cnngvf.arm, so the final mask is identical to that
+%  image's mask in the arm's result directory. The difference is that every
+%  intermediate is written out instead of discarded.
 %
-%  Outputs land in result/steps/<stem>/, numbered in pipeline order:
+%  Outputs land in <Output>/steps/<stem>/, numbered in pipeline order:
 %
 %    01_raw.png            the image as read
-%    02_denoised.png       after the median filter (CNN input channel 1)
-%    03_vesselness.png     Frangi response      (CNN input channel 2)
-%    04_seed_heatmap.png   Gaussian seed map    (CNN input channel 3)
+%    02_denoised.png       after the median filter, if any (CNN channel 1)
+%    03_vesselness.png     Frangi response, only when the arm enables it
+%    04_seed_heatmap.png   Gaussian seed map    (the last CNN channel)
 %    05_prob.png           P, the CNN probability map
 %    06_force.png          f = |grad P|, the GVF energy field
 %    07_gvf_magnitude.png  |(u,v)| of the diffused field
@@ -37,11 +38,17 @@ function out = run_steps(imageName)
 %
 %  See also RUN_BATCH_UNCLUSTERED, CNNGVF.SEGMENTIMAGE.
 
-% --- configuration: identical to run_batch_unclustered ---------------------
-cfg = cnngvf.defaults();
-cfg.Paths.Model        = fullfile(fileparts(cfg.Paths.Model), 'rnvNet_unclustered.mat');
-cfg.Paths.Localization = fullfile(cfg.Paths.Img, 'DRAC_RNV_Points_Unclustered.csv');
-cfg.EvalMode           = "image";
+% --- configuration ---------------------------------------------------------
+% Taken from cnngvf.arm, not rebuilt here. This file used to set the model and
+% the CSV by hand and inherit everything else from defaults, so when the
+% unclustered arm dropped the median filter and the vesselness channel this
+% file kept building 3 channels for a 2-channel network and died in
+% inferProbMap with a channel mismatch - while ../docs/UNCLUSTERED.md was still
+% telling readers to run it. Asking for the arm by name makes that impossible.
+if nargin < 2 || isempty(arm)
+    arm = "DRACTUH_unclustered";
+end
+cfg = cnngvf.arm(cnngvf.defaults(), arm);
 
 imageName = string(imageName);
 if ~endsWith(imageName, ".png")
@@ -49,20 +56,24 @@ if ~endsWith(imageName, ".png")
 end
 [~, stem] = fileparts(imageName);
 
-imgPath = fullfile(cfg.Paths.Img, char(imageName));
-if ~isfile(imgPath)
-    error('cnngvf:runSteps:noImage', 'Image not found: %s', imgPath);
+M = cnngvf.manifest(cfg);
+k = find(M.Name == imageName, 1);
+if isempty(k)
+    error('cnngvf:runSteps:noImage', ...
+        '%s is not in the domain of arm "%s" (datasets: %s).', ...
+        imageName, cfg.Arm, strjoin(cfg.ActiveDatasets, ', '));
 end
+imgPath = M.ImgPath(k);
+
 if ~isfile(cfg.Paths.Model)
     error('cnngvf:runSteps:noModel', ...
-        'No trained network at %s. Run run_train_unclustered first.', cfg.Paths.Model);
+        'No trained network at %s. Run run_train("%s") first.', cfg.Paths.Model, cfg.Arm);
 end
 
-[names, seeds] = rnv.loadSeeds(cfg);
+[names, seeds] = cnngvf.loadPoints(cfg);
 seeds = seeds(names == imageName, :);
 if isempty(seeds)
-    error('cnngvf:runSteps:noSeeds', ...
-        '%s has no seeds in %s', imageName, cfg.Paths.Localization);
+    error('cnngvf:runSteps:noSeeds', '%s carries no %s points.', imageName, cfg.Points);
 end
 
 outDir = fullfile(cfg.Paths.Output, 'steps', char(stem));
@@ -84,9 +95,15 @@ t = tic;
 
 % 1-3. channels ------------------------------------------------------------
 [img, chans] = cnngvf.loadChannels(imgPath, cfg);
-save1(outDir, '01_raw.png',        img.raw);
-save1(outDir, '02_denoised.png',   img.I);
-save1(outDir, '03_vesselness.png', chans(:, :, 2));
+save1(outDir, '01_raw.png',      img.raw);
+save1(outDir, '02_denoised.png', img.I);
+
+% Channel 2 exists only while the arm enables vesselness; the current arms do
+% not. Derive it rather than indexing blindly.
+hasVessel = size(chans, 3) >= 2;
+if hasVessel
+    save1(outDir, '03_vesselness.png', chans(:, :, 2));
+end
 
 % 4. seed heat-map over the whole image (the CNN sees it per patch) ---------
 heat = zeros(img.h, img.w);
@@ -97,12 +114,16 @@ for s = 1:size(seeds, 1)
 end
 save1(outDir, '04_seed_heatmap.png', heat);
 
-% the exact 3-channel tensor handed to the network, per seed
+% The exact tensor handed to the network, per seed: every channel side by side,
+% however many the arm builds.
 for s = 1:size(seeds, 1)
     X = cnngvf.seedPatch(chans, seeds(s, :), seeds(s, :), cfg);
-    imwrite(im2uint8(cat(2, norm01(X(:, :, 1)), norm01(X(:, :, 2)), norm01(X(:, :, 3)))), ...
-        fullfile(patchDir, sprintf('seed_%02d_%d-%d.png', s, ...
-            round(seeds(s, 1)), round(seeds(s, 2)))));
+    strip = [];
+    for c = 1:size(X, 3)
+        strip = cat(2, strip, norm01(X(:, :, c)));
+    end
+    imwrite(im2uint8(strip), fullfile(patchDir, sprintf('seed_%02d_%d-%d.png', s, ...
+        round(seeds(s, 1)), round(seeds(s, 2)))));
 end
 
 % 5. probability map -------------------------------------------------------
@@ -149,7 +170,7 @@ contours = bwboundaries(mask, 'noholes');
 rnv.saveOverlay(fullfile(outDir, '14_overlay.png'), img, seeds, contours);
 
 % 15-16. ground truth ------------------------------------------------------
-gt = rnv.loadMask(fullfile(cfg.Paths.GT, char(imageName)));
+gt = rnv.loadMask(M.GtPath(k));
 m  = [];
 if ~isempty(gt)
     save1(outDir, '15_gt_overlay.png', gt);
@@ -161,8 +182,13 @@ end
 % =========================================================================
 % records
 % =========================================================================
-out = struct('image', imageName, 'seeds', seeds, 'raw', img.raw, 'I', img.I, ...
-    'vesselness', chans(:, :, 2), 'heat', heat, 'P', P, 'f', f, 'u', u, 'v', v, ...
+vesselness = [];
+if hasVessel
+    vesselness = chans(:, :, 2);
+end
+out = struct('image', imageName, 'dataset', M.Dataset(k), 'seeds', seeds, ...
+    'raw', img.raw, 'I', img.I, 'vesselness', vesselness, ...
+    'heat', heat, 'P', P, 'f', f, 'u', u, 'v', v, ...
     'g', g, 'phi0', phi0, 'BW0', BW0, 'phi', phi, 'BW', BW, 'BWm', BWm, ...
     'perSeed', {perSeed}, 'mask', mask, 'gt', gt, 'metrics', m, 'cfg', cfg);
 save(fullfile(outDir, 'steps.mat'), '-struct', 'out');

@@ -30,6 +30,10 @@ if nargin < 1
     cfg = cnngvf.defaults();
 end
 
+% DRAC22-only: the archived network predates TUH entirely, so scoring it over
+% the combined domain would charge it for 27 images it was never shown.
+cfg = cnngvf.arm(cfg, "unclustered");
+
 archived = fullfile(fileparts(cfg.Paths.Model), 'rnvNet_unclustered_20260814_231145.mat');
 if ~isfile(archived)
     error('cnngvf:runBatchUnbalanced:noModel', ...
@@ -38,15 +42,8 @@ if ~isfile(archived)
          'gone, retrain with cfg.Patch.balanceByImage = false.'], archived);
 end
 
-cfg.Paths.Model        = archived;
-cfg.Paths.Localization = fullfile(cfg.Paths.Img, 'DRAC_RNV_Points_Unclustered.csv');
-cfg.Paths.Output       = fullfile(cfg.Paths.Output, 'unclustered_unbalanced');
-cfg.EvalMode           = "image";
-
-if ~isfile(cfg.Paths.Localization)
-    error('cnngvf:runBatchUnbalanced:noCsv', ...
-        'Unclustered points not found: %s', cfg.Paths.Localization);
-end
+cfg.Paths.Model  = archived;
+cfg.Paths.Output = fullfile(fileparts(cfg.Paths.Output), 'unclustered_unbalanced');
 
 fprintf('Scoring the PRE-BALANCING network (epoch spent per seed, not per image)\n');
 fprintf('Model: %s\n\n', archived);

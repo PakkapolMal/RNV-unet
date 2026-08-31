@@ -1,9 +1,14 @@
 function [perUnit, summary] = run_batch(cfg)
-%RUN_BATCH Segment every image in the localization CSV and score each segment.
+%RUN_BATCH Segment every seeded image in the domain and score the result.
 %
 %  run_batch                          % defaults; loads cfg.Paths.Model
+%  run_batch("DRACTUH_unclustered")   % a named arm (see cnngvf.arm)
 %  run_batch(cfg)                     % custom config
 %  [perUnit, summary] = run_batch(...)
+%
+%  The domain spans every dataset in cfg.ActiveDatasets; cnngvf.manifest
+%  resolves each image to its own dataset's mask, so DRAC22 and TUH are
+%  segmented by one pass without either knowing about the other.
 %
 %  Output layout under cfg.Paths.Output:
 %    combined/<stem>.png        union mask per image
@@ -25,6 +30,8 @@ function [perUnit, summary] = run_batch(cfg)
 
 if nargin < 1
     cfg = cnngvf.defaults();
+elseif isstring(cfg) || ischar(cfg)
+    cfg = cnngvf.arm(cnngvf.defaults(), cfg);   % run_batch("DRACTUH_unclustered")
 end
 
 if ~isfile(cfg.Paths.Model)
@@ -34,7 +41,11 @@ end
 loaded = load(cfg.Paths.Model, 'net');
 net    = loaded.net;
 
-[names, seeds] = rnv.loadSeeds(cfg);
+% The domain, and the points that seed it. Both span every active dataset;
+% loadPoints has already dropped points on images with no ground truth, so
+% there is no on-disk existence check to do here.
+M = cnngvf.manifest(cfg);
+[names, seeds] = cnngvf.loadPoints(cfg);
 images = unique(names, 'stable');
 
 % Optional restriction to a subset - run_cv passes a fold's held-out images so
@@ -43,24 +54,10 @@ if isfield(cfg, 'Images') && ~isempty(cfg.Images)
     wanted = ismember(images, string(cfg.Images));
     if ~any(wanted)
         error('cnngvf:runBatch:noneRequested', ...
-            'None of cfg.Images (%s) appear in %s', ...
-            strjoin(string(cfg.Images), ', '), cfg.Paths.Localization);
+            'None of cfg.Images (%s) carry points in the active datasets (%s).', ...
+            strjoin(string(cfg.Images), ', '), strjoin(cfg.ActiveDatasets, ', '));
     end
     images = images(wanted);
-end
-
-% The localization CSVs cover more images than RNV-DRAC22NV actually ships -
-% the unclustered set names 41, of which 17 are present. Skip what is not on
-% disk rather than dying on the first one.
-onDisk = arrayfun(@(n) isfile(fullfile(cfg.Paths.Img, char(n))), images);
-if ~all(onDisk)
-    fprintf('Skipping %d of %d images named in the CSV but not present in %s\n', ...
-        nnz(~onDisk), numel(images), cfg.Paths.Img);
-    images = images(onDisk);
-end
-if isempty(images)
-    error('cnngvf:runBatch:noImages', ...
-        'None of the images in %s are present in %s', cfg.Paths.Localization, cfg.Paths.Img);
 end
 
 dirs = struct('combined', fullfile(cfg.Paths.Output, 'combined'), ...
@@ -85,8 +82,9 @@ for d = string(struct2cell(dirs))'
     end
 end
 
-fprintf('run_batch | cnn+gvf | %d images, %d seeds | device: %s\n', ...
-    numel(images), numel(names), cfg.GpuName);
+fprintf('run_batch | arm %s | %d images, %d seeds | device: %s\n', ...
+    armLabel(cfg), numel(images), numel(names), cfg.GpuName);
+fprintf('Datasets: %s\n', strjoin(cfg.ActiveDatasets, ' + '));
 fprintf('Output: %s\n\n', cfg.Paths.Output);
 
 n = numel(images);
@@ -100,7 +98,7 @@ for i = 1:n
 
     tImg = tic;
     [mask, perSeed, contours, img, P] = cnngvf.segmentImage( ...
-        fullfile(cfg.Paths.Img, char(imgName)), imgSeeds, net, cfg);
+        M.ImgPath(M.Name == imgName), imgSeeds, net, cfg);
     elapsed(i) = toc(tImg);
 
     results(i).image   = imgName;
@@ -151,6 +149,15 @@ if summary.nUnits > 0
         fprintf(' | %d GT px belong to lesions no seed claimed', summary.unclaimedGtPx);
     end
     fprintf('\n');
+    if height(summary.perDataset) > 1
+        fprintf('Per dataset:\n');
+        for i = 1:height(summary.perDataset)
+            fprintf('  %-8s n=%-3d IoU %.4f  F1 %.4f  prec %.4f  rec %.4f\n', ...
+                summary.perDataset.Dataset(i), summary.perDataset.GroupCount(i), ...
+                summary.perDataset.mean_Iou(i), summary.perDataset.mean_F1(i), ...
+                summary.perDataset.mean_Precision(i), summary.perDataset.mean_Recall(i));
+        end
+    end
 else
     fprintf('No ground truth found to score against.\n');
 end
@@ -161,6 +168,15 @@ end
 % =========================================================================
 % LOCAL FUNCTIONS
 % =========================================================================
+
+function s = armLabel(cfg)
+if strlength(cfg.Arm) > 0
+    s = cfg.Arm;
+else
+    s = "(custom cfg)";
+end
+end
+
 
 function csvName = writeScores(cfg, perUnit)
 %WRITESCORES Write the score table, falling back to a timestamped name when

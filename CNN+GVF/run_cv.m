@@ -1,9 +1,10 @@
 function [perImage, summary] = run_cv(arm, cfg)
 %RUN_CV Cross-validated training and scoring: every image scored out-of-sample.
 %
-%  run_cv                       % arm "unclustered" (the proposed method)
-%  run_cv("clustered")          % the baseline
-%  run_cv(arm, cfg)             % custom config
+%  run_cv                             % "DRACTUH_unclustered", the current arm
+%  run_cv("unclustered")              % DRAC22 only, the frozen record
+%  run_cv("clustered")                % the original baseline
+%  run_cv(arm, cfg)                   % custom config
 %  [perImage, summary] = run_cv(...)
 %
 %  Why this exists: run_batch scores all 17 ground-truth images, but 13 of them
@@ -19,78 +20,64 @@ function [perImage, summary] = run_cv(arm, cfg)
 %  The test images are excluded from training AND from checkpoint selection, so
 %  nothing about them influences the model that scores them.
 %
-%  arm : "unclustered" - train from DRAC_RNV_Points_Unclustered.csv (default)
-%        "clustered"   - train from the clustered centres
-%  Both arms use the SAME folds, so they can be compared paired by image.
+%  arm : any name from cnngvf.arm - it fixes the datasets, the point set and
+%        the channel count. Arms over the SAME domain use the SAME folds
+%        (cnngvf.cvFolds is deterministic), so they compare paired by image.
+%        Arms over DIFFERENT domains do not, and their numbers are not
+%        comparable - "unclustered" is 41 DRAC22 images, "DRACTUH_unclustered"
+%        is those 41 plus 27 TUH.
 %
-%  Writes models/cv/<arm>_fold<k>.mat and result/cv/<arm>/fold<k>/, then
-%  concatenates the folds into result/cv/<arm>/per_image.csv.
+%  Writes models/cv/<arm>_fold<k>.mat and <Output>/cv/fold<k>/, then
+%  concatenates the folds into <Output>/cv/per_image.csv. Output is already
+%  arm-specific, so this cannot overwrite an earlier arm's record.
 %
-%  Runtime is cfg.CV.k training runs: ~2.4 h per fold at 30 epochs, so ~12 h.
-%  Dry-run it first with cfg.Net.epochs = 1.
+%  Folds are pooled across datasets and stratified by lesion area. per_image.csv
+%  carries a Dataset column and the summary prints a per-dataset breakout, so a
+%  pooled run can be inspected per device without being re-run.
 %
-%  See also CNNGVF.CVFOLDS, RUN_BATCH, RUN_EVAL, CNNGVF.EVALUATE.
+%  Runtime is cfg.CV.k training runs. Dry-run it first with cfg.Net.epochs = 1.
+%
+%  See also CNNGVF.ARM, CNNGVF.CVFOLDS, RUN_BATCH, RUN_EVAL, CNNGVF.EVALUATE.
 
-if nargin < 1 || strlength(arm) == 0
-    arm = "unclustered";
+if nargin < 1 || isempty(arm) || strlength(arm) == 0
+    arm = "DRACTUH_unclustered";
 end
-arm = lower(string(arm));
+arm = string(arm);
 if nargin < 2
     cfg = cnngvf.defaults();
 end
 
-% perSeed differs per arm so both arms see a comparable epoch, exactly as the
-% non-CV runners do: the unclustered set has ~4.6x the seeds, so 4 crops each
-% matches the clustered set's 16. Leaving it at the default 16 for both would
-% give the unclustered arm 1232 patches per epoch instead of ~400 - six hours
-% per fold rather than two, and an unfair comparison on top.
-switch arm
-    case "unclustered"
-        seedCsv = fullfile(cfg.Paths.Img, 'DRAC_RNV_Points_Unclustered.csv');
-        cfg.Patch.perSeed = 4;
-    case "clustered"
-        seedCsv = cfg.Paths.Localization;
-        cfg.Patch.perSeed = 16;
-    otherwise
-        error('cnngvf:runCv:badArm', 'Unknown arm "%s". Use "unclustered" or "clustered".', arm);
-end
-if ~isfile(seedCsv)
-    error('cnngvf:runCv:noCsv', 'Seed file not found: %s', seedCsv);
-end
-
-cfg.EvalMode = "image";   % the union mask vs FilledGT; the unit both arms share
-
-% Preprocessing is set here, for BOTH arms, rather than inherited per arm from
-% run_train / run_train_unclustered - those two now differ, and a paired
-% comparison needs identical inputs. Filters off matches the current
-% unclustered configuration, and the ablation found them worth -0.009 mean /
-% +0.000 median, i.e. nothing. Channel counts are derived, so this is the only
-% place to change it.
-cfg.Denoise        = [];
-cfg.Vessel.enabled = false;
+% Everything that defines the arm - datasets, point set, channel count,
+% perSeed, model and output paths - comes from cnngvf.arm. run_cv used to
+% carry its own switch that duplicated those settings and had already drifted
+% from the runners it was meant to reproduce.
+cfg = cnngvf.arm(cfg, arm);
+cfg.EvalMode = "image";   % the union mask vs whole-image GT; the shared unit
 
 % 20 epochs, not the 30 a single training run uses. Cross-validation pays for
-% training k times, and at 41 ground-truth images a fold is ~715 patches per
-% epoch: 30 epochs would be 3.6 h per fold and 17.9 h for the arm, against
-% ~12 h at 20. OutputNetwork="best-validation" keeps the best checkpoint, so
-% the cost of stopping earlier is accuracy at the margin rather than a broken
-% run - but it does mean a CV figure measures a slightly less-trained network
-% than run_train_unclustered deploys, and will if anything understate it.
+% training k times. OutputNetwork="best-validation" keeps the best checkpoint,
+% so stopping earlier costs accuracy at the margin rather than correctness -
+% but it does mean a CV figure measures a slightly less-trained network than
+% run_train deploys, and will if anything understate it.
 cfg.Net.epochs = 20;
 
 [folds, foldInfo] = cnngvf.cvFolds(cfg);
 k = numel(folds);
 
-cvRoot   = fullfile(cfg.Paths.Output, 'cv', char(arm));
+% cfg.Paths.Output is already arm-specific (cnngvf.arm), so 'cv' under it is
+% enough. This also means the new arms cannot overwrite result/cv/unclustered,
+% the frozen DRAC22-only record written under the old layout.
+cvRoot   = fullfile(cfg.Paths.Output, 'cv');
 modelDir = fullfile(fileparts(cfg.Paths.Model), 'cv');
 for d = string({cvRoot, modelDir})
     if ~exist(d, 'dir'), mkdir(d); end
 end
 
 fprintf('run_cv | arm=%s | %d folds | device: %s\n', arm, k, cfg.GpuName);
-fprintf('Seeds  : %s\n', seedCsv);
-fprintf('Output : %s\n\n', cvRoot);
-disp(foldInfo);
+fprintf('Datasets : %s\n', strjoin(cfg.ActiveDatasets, ' + '));
+fprintf('Points   : %s\n', cfg.Points);
+fprintf('Output   : %s\n\n', cvRoot);
+disp(groupsummary(foldInfo, {'Fold', 'Dataset'}));
 
 tAll = tic;
 for f = 1:k
@@ -112,8 +99,9 @@ for f = 1:k
     fprintf('  test  (%d): %s\n', numel(test),  strjoin(test',  ', '));
     fprintf('  inner (%d): %s\n', numel(inner), strjoin(inner', ', '));
 
+    % The arm already fixed datasets, point set and channels; a fold only
+    % changes which images are held out and where the model goes.
     fc = cfg;
-    fc.Paths.LocalizationTrain = seedCsv;
     fc.Split.Exclude = test;    % never seen by training or checkpoint selection
     fc.Split.Val     = inner;
     fc.Paths.Model   = fullfile(modelDir, sprintf('%s_fold%d.mat', arm, f));
@@ -122,9 +110,8 @@ for f = 1:k
 
     % Score this fold's model on this fold's held-out images only.
     bc = fc;
-    bc.Paths.Localization = seedCsv;   % inference seeds match the arm
-    bc.Images             = test;
-    bc.Paths.Output       = fullfile(cvRoot, sprintf('fold%d', f));
+    bc.Images       = test;
+    bc.Paths.Output = fullfile(cvRoot, sprintf('fold%d', f));
     run_batch(bc);
 end
 
@@ -135,7 +122,16 @@ fprintf('\n=== %s: cross-validated over %d images, all out-of-sample ===\n', ...
 fprintf('mean IoU %.4f | median %.4f | F1 %.4f | precision %.4f | recall %.4f\n', ...
     summary.meanIou, summary.medianIou, summary.meanF1, ...
     summary.meanPrecision, summary.meanRecall);
-fprintf('total runtime %.1f h\n', toc(tAll) / 3600);
+if height(summary.perDataset) > 1
+    fprintf('\nPer dataset (the folds are pooled; this is a breakout, not a protocol):\n');
+    for i = 1:height(summary.perDataset)
+        fprintf('  %-8s n=%-3d IoU %.4f  F1 %.4f  prec %.4f  rec %.4f\n', ...
+            summary.perDataset.Dataset(i), summary.perDataset.GroupCount(i), ...
+            summary.perDataset.mean_Iou(i), summary.perDataset.mean_F1(i), ...
+            summary.perDataset.mean_Precision(i), summary.perDataset.mean_Recall(i));
+    end
+end
+fprintf('\ntotal runtime %.1f h\n', toc(tAll) / 3600);
 fprintf('Records: %s\n', fullfile(cvRoot, 'per_image.csv'));
 end
 
@@ -165,6 +161,9 @@ perImage = vertcat(parts{:});
 % format - cnngvf.evaluate builds it as a string array. Normalise before
 % anything downstream touches it.
 perImage.Image = string(perImage.Image);
+if ismember('Dataset', perImage.Properties.VariableNames)
+    perImage.Dataset = string(perImage.Dataset);
+end
 perImage = sortrows(perImage, 'Image');
 
 writetable(perImage, fullfile(cvRoot, 'per_image.csv'));
@@ -178,9 +177,18 @@ summary = struct( ...
     'meanRecall',     mean(perImage.Recall), ...
     'unclaimedGtPx',  0, ...
     'missingGtFiles', 0);
+summary.perDataset = groupsummary(perImage, 'Dataset', 'mean', ...
+    {'Iou', 'F1', 'Precision', 'Recall'});
 
+% The header names the thing that produced these numbers. It used to inherit
+% cfg's default Model and Localization, so an unclustered CV run recorded
+% itself as rnvNet.mat scored from the clustered CSV - wrong on both counts,
+% in the file that exists to be the provenance record. k models produced this
+% table, so say so.
 sc = cfg;
 sc.Paths.Output = cvRoot;
 sc.EvalMode     = "image";
+sc.Paths.Model  = sprintf('%d-fold CV, %s (see fold*/run_summary.txt)', ...
+    k, fullfile(fileparts(cfg.Paths.Model), 'cv', char(cfg.Arm) + "_fold<k>.mat"));
 cnngvf.writeSummary(fullfile(cvRoot, 'run_summary.txt'), sc, perImage, summary, []);
 end

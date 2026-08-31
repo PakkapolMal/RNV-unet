@@ -17,6 +17,8 @@ testPatchGeometry(cfg);
 testGvfField(cfg);
 testRefinement(cfg);
 testSeedComponents(cfg);
+testDomain(cfg);
+testArms(cfg);
 testSegGtNaming(cfg);
 testGpuMatchesCpu(cfg);
 
@@ -145,14 +147,89 @@ fprintf('  seed mask selection       ok\n');
 end
 
 
+function testDomain(cfg)
+% The manifest is the join between an image and its mask, and it is the piece
+% TUH broke: nvImages/nv (N).png pairs with nvGtImages/gt (N).png, so the
+% identity mapping DRAC22 relies on does not hold. A silent failure here scores
+% every prediction against the wrong mask or against nothing.
+M = cnngvf.manifest(cfg);
+
+assert(height(M) > 0, 'manifest is empty');
+assert(numel(unique(M.Name)) == height(M), 'manifest names are not unique');
+assert(all(arrayfun(@(p) isfile(p), M.ImgPath)), 'a manifest image path does not exist');
+assert(all(arrayfun(@(p) isfile(p), M.GtPath)),  'a manifest gt path does not exist');
+
+% The stem rewrite actually rewrites. Every dataset must resolve its own names,
+% and a mask must never be borrowed from another dataset's directory.
+for d = unique(M.Dataset)'
+    sub = M(M.Dataset == d, :);
+    Ds  = cfg.Datasets(arrayfun(@(x) x.Name == d, cfg.Datasets));
+    assert(all(startsWith(sub.GtPath, string(Ds.GT))), ...
+        'dataset %s resolved a mask outside its own GT directory', d);
+end
+
+% Points land on images that exist in the domain.
+[names, seeds] = cnngvf.loadPoints(cfg);
+assert(all(ismember(names, M.Name)), 'loadPoints returned an out-of-domain image');
+assert(size(seeds, 1) == numel(names), 'names and seeds disagree in length');
+
+% Folds partition the domain exactly once - the property the whole
+% out-of-sample claim rests on.
+folds = cnngvf.cvFolds(cfg);
+all_  = vertcat(folds{:});
+assert(numel(all_) == height(M) && isempty(setdiff(all_, M.Name)), ...
+    'cvFolds does not partition the domain');
+assert(numel(unique(all_)) == numel(all_), 'an image appears in two folds');
+
+fprintf('  domain manifest           ok (%d images, %d seeds, %s)\n', ...
+    height(M), numel(names), strjoin(compose("%s %d", ...
+        unique(M.Dataset), groupcounts(M.Dataset))', ', '));
+end
+
+
+function testArms(cfg)
+% Every arm must be self-consistent. The failure this guards against is the one
+% that actually happened: run_train and run_train_unclustered drifting apart on
+% the channel flags, which a network cannot survive.
+for a = cnngvf.arm()
+    c = cnngvf.arm(cfg, a);
+    assert(c.Arm == a, 'arm %s did not record its own name', a);
+    assert(~isempty(c.ActiveDatasets), 'arm %s activates no dataset', a);
+    assert(endsWith(c.Paths.Model, ".mat"), 'arm %s has no model path', a);
+    assert(~isempty(c.Split.Val), 'arm %s derived an empty validation split', a);
+
+    M = cnngvf.manifest(c);
+    assert(~all(ismember(M.Name, c.Split.Val)), ...
+        'arm %s validates on the whole domain, leaving nothing to train on', a);
+
+    % A validation split that names only one dataset would silently stop
+    % checkpoint selection from ever seeing the other.
+    if numel(c.ActiveDatasets) > 1
+        valDs = unique(M.Dataset(ismember(M.Name, c.Split.Val)));
+        assert(numel(valDs) == numel(c.ActiveDatasets), ...
+            'arm %s validates on %d of %d datasets', a, ...
+            numel(valDs), numel(c.ActiveDatasets));
+    end
+end
+
+fprintf('  arm definitions           ok (%s)\n', strjoin(cnngvf.arm(), ', '));
+end
+
+
 function testSegGtNaming(cfg)
 % The evaluation keys ground truth by seed coordinates, so the filename must
-% match what separate_segments.py wrote. Checked against the real directory:
-% a naming drift here would silently score every segment against nothing.
+% match what separate_segments.py wrote. A naming drift here would silently
+% score every segment against nothing.
+%
+% DRAC22 + clustered points only. TUH ships no per-seed masks and the
+% unclustered points are not what the files are named for, so the "clustered"
+% arm is the only place this can be checked at all.
+cfg = cnngvf.arm(cfg, "clustered");
+
 assert(strcmp(cnngvf.segGtFile(cfg, "458.png", [631 641]), ...
     fullfile(cfg.Paths.SegGT, '458-631-641.png')), 'segGtFile naming changed');
 
-[names, seeds] = rnv.loadSeeds(cfg);
+[names, seeds] = cnngvf.loadPoints(cfg);
 missing = strings(0, 1);
 for k = 1:numel(names)
     p = cnngvf.segGtFile(cfg, names(k), seeds(k, :));
@@ -163,11 +240,11 @@ end
 % Not assert: it evaluates its message arguments even when the check passes,
 % and missing(1) does not exist in the passing case.
 if ~isempty(missing)
-    error('%d of %d seeds have no ground-truth segment file, first: %s', ...
+    error('%d of %d clustered seeds have no ground-truth segment file, first: %s', ...
         numel(missing), numel(names), missing(1));
 end
 
-fprintf('  segment gt naming         ok (%d seeds all resolve)\n', numel(names));
+fprintf('  segment gt naming         ok (%d clustered seeds all resolve)\n', numel(names));
 end
 
 

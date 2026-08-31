@@ -11,20 +11,28 @@ function cfg = defaults()
 %     cfg = cnngvf.defaults(); cfg.Drlse.iter = 600;
 %
 %  Fields
-%    Paths    Base/Img/Localization/GT/Model/Output (absolute, resolved from
-%             this file - no hard-coded drive letters).
-%    Split    Validation image list; every other GT image trains.
-%    Patch    CNN patch geometry and seed heat-map sigma.
-%    Net      U-Net architecture and training hyper-parameters.
-%    Force    How P becomes the GVF energy field f.
-%    Gvf      GVF diffusion parameters (Xu & Prince).
-%    Drlse    Level-set parameters (Li et al. 2010).
-%    Post     Mask cleanup.
-%    UseGpu   Run GVF/DRLSE on the GPU. Defaults to canUseGPU().
+%    Datasets   Registry of the available datasets: where their images, masks
+%               and localization CSVs live, and how an image name maps to its
+%               mask name. See cnngvf.manifest.
+%    ActiveDatasets  Which of them are in the domain right now. Set by
+%               cnngvf.arm; defaults to all.
+%    Points     "clustered" | "unclustered" - which point set seeds the run.
+%    Paths      Base/Model/Output, plus single-CSV fields kept in step by
+%               cnngvf.arm for the legacy consumers (absolute, resolved from
+%               this file - no hard-coded drive letters).
+%    Split      Derived validation split; every other domain image trains.
+%    Patch      CNN patch geometry and seed heat-map sigma.
+%    Net        U-Net architecture and training hyper-parameters.
+%    Force      How P becomes the GVF energy field f.
+%    Gvf        GVF diffusion parameters (Xu & Prince).
+%    Drlse      Level-set parameters (Li et al. 2010).
+%    Post       Mask cleanup.
+%    UseGpu     Run GVF/DRLSE on the GPU. Defaults to canUseGPU().
 %
-%  Defaults come from the parameter table in ../docs/spec.md.
+%  Defaults come from the parameter table in ../docs/spec.md; the measured
+%  justification for each is in ../docs/UNCLUSTERED.md.
 %
-%  See also CNNGVF.SEGMENTIMAGE, RUN_TRAIN, RUN_BATCH.
+%  See also CNNGVF.ARM, CNNGVF.MANIFEST, CNNGVF.SEGMENTIMAGE, RUN_TRAIN, RUN_BATCH.
 
 requireToolboxes();
 
@@ -40,21 +48,65 @@ addpath(fullfile(baseDir, 'RNV-Claude', 'main'));                % rnv.* helpers
 
 cfg.Paths.Base         = baseDir;
 cfg.Paths.Main         = mainDir;
-cfg.Paths.Img          = fullfile(baseDir, 'RNV-DRAC22NV');
-cfg.Paths.Localization = fullfile(baseDir, 'RNV-DRAC22NV', 'DRAC22_RNV_Localization_Points_Sorted.csv');
-cfg.Paths.GT           = fullfile(baseDir, 'RNV-DRAC22GT', 'FilledGT');
-% One mask per localization seed, named <stem>-<x>-<y>.png. Written by
-% separate_segments.py, which keeps the ground-truth component each seed falls
-% in and drops the components no seed claims. This is the evaluation unit.
-cfg.Paths.SegGT        = fullfile(baseDir, 'RNV-DRAC22GT', 'SegmentFilledGT');
-% Where TRAINING seeds come from. Evaluation always uses cfg.Paths.Localization
-% (the clustered centres the ground-truth segments are keyed to), so pointing
-% this at a denser point set changes only what the network sees, never what it
-% is scored against. run_train_unclustered.m sets it to the unclustered points.
-cfg.Paths.LocalizationTrain = cfg.Paths.Localization;
-
 cfg.Paths.Model        = fullfile(mainDir, 'models', 'rnvNet.mat');
 cfg.Paths.Output       = fullfile(mainDir, 'result');
+
+% --- Dataset registry ------------------------------------------------------
+% An image used to BE its filename: one string keyed the image, the mask, the
+% CSV rows and the output names, because image and mask happened to share a
+% stem in one directory each. TUH pairs nvImages/nv (N).png with
+% nvGtImages/gt (N).png, so the image -> mask mapping is per-dataset data.
+%
+% GtFrom/GtTo are a regexprep on the STEM (extension is carried over):
+%   DRAC22  "^(.*)$" -> "$1"       identity
+%   TUH     "^nv (.*)$" -> "gt $1"
+%
+% Resolved once by cnngvf.manifest, which every stage reads instead of building
+% paths with its own fullfile call.
+drac = fullfile(baseDir, 'RNV-DRAC22NV');
+tuh  = fullfile(baseDir, 'TUH');
+
+cfg.Datasets(1).Name        = "DRAC22";
+cfg.Datasets(1).Img         = drac;
+cfg.Datasets(1).GT          = fullfile(baseDir, 'RNV-DRAC22GT', 'FilledGT');
+% One mask per localization seed, named <stem>-<x>-<y>.png. Written by
+% separate_segments.py, which keeps the ground-truth component each seed falls
+% in and drops the components no seed claims. DRAC22 only, and keyed to the
+% CLUSTERED coordinates - which is why EvalMode "segment" is fenced to this
+% dataset and that point set.
+cfg.Datasets(1).SegGT       = fullfile(baseDir, 'RNV-DRAC22GT', 'SegmentFilledGT');
+cfg.Datasets(1).GtFrom      = "^(.*)$";
+cfg.Datasets(1).GtTo        = "$1";
+cfg.Datasets(1).Clustered   = fullfile(drac, 'DRAC22_RNV_Localization_Points_Sorted.csv');
+cfg.Datasets(1).Unclustered = fullfile(drac, 'DRAC_RNV_Points_Unclustered.csv');
+
+% OCTA en-face like DRAC22, but a different device (ZEISS PLEX Elite) with a
+% different FOV crop. Every TUH image carries a burned-in acquisition overlay -
+% a magenta vertical and cyan horizontal crosshair spanning the frame, plus a
+% "PLEX Elite" watermark bottom-right. These are deliberately NOT removed; see
+% ../docs/UNCLUSTERED.md, "The TUH acquisition overlay".
+cfg.Datasets(2).Name        = "TUH";
+cfg.Datasets(2).Img         = fullfile(tuh, 'nvImages');
+cfg.Datasets(2).GT          = fullfile(tuh, 'nvGtImages');
+cfg.Datasets(2).SegGT       = "";     % no per-seed ground truth exists
+cfg.Datasets(2).GtFrom      = "^nv (.*)$";
+cfg.Datasets(2).GtTo        = "gt $1";
+cfg.Datasets(2).Clustered   = fullfile(tuh, 'TUH_RNV_Localization_Points.csv');
+cfg.Datasets(2).Unclustered = fullfile(tuh, 'TU_RNV_Points_Unclustered.csv');
+
+% Everything by default; cnngvf.arm narrows it.
+cfg.ActiveDatasets = [cfg.Datasets.Name];
+cfg.Points         = "unclustered";
+cfg.Arm            = "";
+
+% Kept in step with the arm by cnngvf.arm, for the consumers that still take a
+% single CSV (rnv.loadSeeds called directly, cnngvf.segGtFile). Multi-dataset
+% paths go through cnngvf.loadPoints and cnngvf.manifest.
+cfg.Paths.Localization      = cfg.Datasets(1).Unclustered;
+cfg.Paths.LocalizationTrain = cfg.Paths.Localization;
+cfg.Paths.GT                = cfg.Datasets(1).GT;
+cfg.Paths.Img               = cfg.Datasets(1).Img;
+cfg.Paths.SegGT             = cfg.Datasets(1).SegGT;
 
 % rnv.loadSeeds / rnv.loadImage read these two.
 % 1, not the 40 that RNV-Claude/main uses. That convention dated from a CSV
@@ -68,8 +120,14 @@ cfg.EdgeSigma = 2;      % blur before the raw-image gradient (only used by "blen
 
 % --- Train / validation split ---------------------------------------------
 % Patient-level: whole images, never patches, so no lesion leaks across the
-% split. 4 of the 17 ground-truth images validate; the other 13 train.
-cfg.Split.Val = ["461.png", "535.png", "576.png", "664.png"];
+% split.
+%
+% Derived by cnngvf.valSplit, not written down. The old default listed four
+% DRAC22 filenames from the 17-image era and then survived the dataset growing
+% to 41 and TUH arriving - still validating on those same four images, and on
+% none of TUH. A literal list cannot notice it has gone stale.
+cfg.Split.NumVal = 6;
+cfg.Split.Val    = strings(0, 1);   % filled in below, once Datasets exist
 
 % Images removed from training AND validation entirely. run_cv sets this to a
 % fold's held-out test images, so they are never seen by training or by
@@ -107,6 +165,13 @@ cfg.Patch.perSeed   = 16;    % random crops per seed per epoch
 % matters when seed counts are uneven, i.e. for the unclustered detections; it
 % is a no-op for the clustered centres, where every image has 1-7. See
 % cnngvf.prepareData for the measurement that motivated it.
+%
+% It matters more on the combined domain, and in a second way. TUH holds 558 of
+% the 792 usable detections (70%) across 27 of the 68 images (40%), so
+% per-image balancing gives TUH 40% of the epoch rather than 70%. That is the
+% intended behaviour - an image is one observation regardless of how many times
+% the detector fired on it - but it is a choice, and the opposite choice
+% (weight by detection count) is one flag away.
 cfg.Patch.balanceByImage = true;
 
 % --- U-Net -----------------------------------------------------------------
@@ -174,11 +239,15 @@ cfg.Drlse.seedRadius = 15;  % fallback init disk where P never crosses tau
 %  "segment" one row per seed: the seed's mask vs its own
 %            SegmentFilledGT/<stem>-<x>-<y>.png. Keyed by seed coordinates, so
 %            it only works for the clustered centres those files are named for.
+%            DRAC22 + clustered points ONLY - TUH ships no per-seed masks, and
+%            cnngvf.evaluate errors rather than scoring against nothing. Kept
+%            for reproducing the original baseline; not used by any current arm.
 %  "image"   one row per image: the union of all seeds' masks vs the whole
 %            FilledGT/<stem>.png. Required for the unclustered points, which
 %            have no per-point ground truth and several points per lesion -
-%            scoring them individually would count one lesion many times.
-cfg.EvalMode = "segment";
+%            scoring them individually would count one lesion many times. The
+%            only mode valid across both datasets.
+cfg.EvalMode = "image";
 
 % Restrict scoring to these images ("" = all of them, the default). run_cv sets
 % it to a fold's held-out images so a model is scored only on data it never
@@ -186,11 +255,17 @@ cfg.EvalMode = "segment";
 cfg.Images = strings(0, 1);
 
 % --- Cross-validation ------------------------------------------------------
-% Scoring the same 17 images that 13 of them trained on makes the headline
-% number mostly in-sample: balanced sampling moved the reported mean +0.012
-% while moving the out-of-sample mean +0.068. k folds give one out-of-sample
-% score per image instead of 4 noisy ones.
-cfg.CV.k        = 5;   % folds of 4/4/3/3/3 over the 17 GT images
+% Scoring images that trained the model makes the headline mostly in-sample:
+% balanced sampling once moved the reported mean +0.012 while moving the
+% out-of-sample mean +0.068 - the number was hiding the result. k folds give
+% one out-of-sample score per image.
+%
+% Folds are pooled across datasets and stratified by lesion area (see
+% cnngvf.cvFolds). Pooling is deliberate: the research question is RNV
+% segmentation, not per-device performance, so a fold is not restricted to one
+% device. per_image.csv still carries a Dataset column, so a pooled run can be
+% broken out afterwards without re-running it.
+cfg.CV.k        = 5;   % 68 domain images -> folds of 14/14/14/13/13
 cfg.CV.innerVal = 2;   % training images held out for best-checkpoint selection
 
 % --- Post-processing -------------------------------------------------------
@@ -209,6 +284,19 @@ cfg.UseGpu  = canUseGPU();
 cfg.GpuName = "cpu";
 if cfg.UseGpu
     cfg.GpuName = string(gpuDevice().Name);
+end
+
+% --- Derived ---------------------------------------------------------------
+% Last, because it reads the manifest and so needs every field above. Tolerant
+% of a missing dataset: cnngvf.defaults must stay callable for test_cnngvf and
+% for inspecting parameters on a machine that has no data mounted.
+try
+    cfg.Split.Val = cnngvf.valSplit(cfg);
+catch err
+    warning('cnngvf:defaults:noSplit', ...
+        ['Could not derive Split.Val (%s).\n' ...
+         'Parameters are still usable; anything that trains or scores will ' ...
+         'fail until the datasets are reachable.'], err.message);
 end
 end
 

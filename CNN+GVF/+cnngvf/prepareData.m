@@ -17,29 +17,30 @@ function [dsTrain, dsVal, info] = prepareData(cfg)
 %  labels a patch containing two lesions marks both as foreground, and a
 %  neighbouring lesion leaks into this seed's predicted component.
 %
-%  info : struct with the image lists, seed counts and patches per epoch.
+%  info : struct with the image lists, seed counts, patches per epoch and the
+%         per-dataset breakdown.
 %
-%  Patches are cropped on the fly rather than materialised to disk. The 17
-%  source images fit in ~140 MB of memory, while 400+ cached 256x256x3 single
-%  patches would be well over a gigabyte - and re-randomising the jitter and
-%  the flip/rotation every epoch gives free augmentation that a fixed cache
-%  cannot. Nothing downstream reads a patch file, so none is written.
+%  Images and seeds come from cnngvf.manifest and cnngvf.loadPoints, so this
+%  spans every active dataset without knowing how many there are or how each
+%  one names its masks.
+%
+%  Patches are cropped on the fly rather than materialised to disk. The source
+%  images fit comfortably in memory, while thousands of cached 512x512x3 single
+%  patches would be many gigabytes - and re-randomising the jitter and the
+%  flip/rotation every epoch gives free augmentation that a fixed cache cannot.
+%  Nothing downstream reads a patch file, so none is written.
 %
 %  The split is by image (cfg.Split.Val), never by patch: two patches from the
 %  same lesion must not straddle train and validation.
 %
-%  See also CNNGVF.TRAINNET, CNNGVF.SEEDPATCH, CNNGVF.LOADCHANNELS.
+%  See also CNNGVF.MANIFEST, CNNGVF.LOADPOINTS, CNNGVF.TRAINNET, CNNGVF.SEEDPATCH.
 
-% Training seeds come from cfg.Paths.LocalizationTrain, which defaults to the
-% same clustered CSV the evaluation uses but can point at a denser point set.
-seedCfg = cfg;
-seedCfg.Paths.Localization = cfg.Paths.LocalizationTrain;
-[names, seeds] = rnv.loadSeeds(seedCfg);
+% The domain: every image with ground truth, across the active datasets.
+% cnngvf.loadPoints has already dropped points on images outside it.
+M = cnngvf.manifest(cfg);
+[names, seeds] = cnngvf.loadPoints(cfg);
 
-% --- Keep only seeds whose image has a ground-truth mask -------------------
-images  = unique(names, 'stable');
-hasGt   = arrayfun(@(n) isfile(fullfile(cfg.Paths.GT, char(n))), images);
-images  = images(hasGt);
+images = unique(names, 'stable');
 
 % Cross-validation: drop the fold's held-out images before anything else, so
 % they reach neither training nor inner validation.
@@ -53,17 +54,24 @@ if isfield(cfg.Split, 'Exclude') && ~isempty(cfg.Split.Exclude)
 end
 
 if isempty(images)
-    error('cnngvf:prepareData:noGt', 'No ground-truth masks found in %s', cfg.Paths.GT);
+    error('cnngvf:prepareData:noGt', ...
+        'No seeded ground-truth images in the active datasets (%s).', ...
+        strjoin(cfg.ActiveDatasets, ', '));
 end
 
 keep  = ismember(names, images);
 names = names(keep);
 seeds = seeds(keep, :);
 
+% Manifest rows for the training images, in the same order as `images`, so a
+% path lookup is an index rather than another fullfile guess.
+row = arrayfun(@(n) find(M.Name == n, 1), images);
+M   = M(row, :);
+
 % --- Load each image once --------------------------------------------------
 chans = cell(numel(images), 1);
 for i = 1:numel(images)
-    [~, c] = cnngvf.loadChannels(fullfile(cfg.Paths.Img, char(images(i))), cfg);
+    [~, c] = cnngvf.loadChannels(M.ImgPath(i), cfg);
     chans{i} = single(c);
 end
 
@@ -83,7 +91,7 @@ onBackground = false(numel(names), 1);
 
 for i = 1:numel(images)
     sel = find(names == images(i))';
-    filled = rnv.loadMask(fullfile(cfg.Paths.GT, char(images(i))));
+    filled = rnv.loadMask(M.GtPath(i));
     CC = bwconncomp(filled);
     L  = labelmatrix(CC);
     [h, w] = size(filled);
@@ -178,6 +186,16 @@ info.balanceByImage  = cfg.Patch.balanceByImage;
 % Channel stack plus the seed heat-map. trainNet sizes the network from this
 % rather than assuming 3, so cfg.Vessel.enabled needs no change there.
 info.numChannels = size(chans{1}, 3) + 1;
+
+% Per-dataset breakdown of the training set. A pooled domain hides which
+% dataset an epoch was actually spent on, and that is the first thing to check
+% when a combined run behaves unlike either dataset alone.
+trainDs = M.Dataset(imgIdx(~valSeed));
+info.perDataset = table(unique(trainDs, 'stable'), ...
+    arrayfun(@(d) nnz(M.Dataset(~isVal) == d), unique(trainDs, 'stable')), ...
+    arrayfun(@(d) nnz(trainDs == d), unique(trainDs, 'stable')), ...
+    arrayfun(@(d) nnz(M.Dataset(imgIdx(trainIdx)) == d), unique(trainDs, 'stable')), ...
+    'VariableNames', {'Dataset', 'Images', 'Seeds', 'Patches'});
 
 % Patches drawn per training image this epoch, so a run's record shows how the
 % epoch was actually spent rather than only how many patches it held.
