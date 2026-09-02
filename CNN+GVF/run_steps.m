@@ -160,7 +160,7 @@ BWm = imfill(imclose(BW, cfg.Post.MorphElement), 'holes');
 save1(outDir, '12_after_morph.png', BWm);
 
 % 13. seed-claimed components ---------------------------------------------
-[perSeed, mask] = cnngvf.seedMasks(BWm, seeds, cfg.Post.MinArea);
+[perSeed, mask] = cnngvf.seedMasks(BWm, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule);
 save1(outDir, '13_final_mask.png', mask);
 
 elapsed = toc(t);

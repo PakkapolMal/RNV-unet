@@ -144,7 +144,39 @@ assert(isequal(masks{1} | masks{2}, out), 'union does not match the per-seed mas
 both = cnngvf.seedMasks(BW, [30 30; 50 50], cfg.Post.MinArea);
 assert(isequal(both{1}, both{2}), 'two seeds in one lesion returned different masks');
 
-fprintf('  seed mask selection       ok\n');
+% The two claiming rules, on the case that separates them: a long concave
+% component whose centre of mass is far from its own pixels, and a small compact
+% one nearby. A seed just off the end of the long arm is 4 px from the long
+% component's BOUNDARY but 64 px from its centroid, while the compact blob's
+% centroid is only 42 px away - so "centroid" hands the seed the wrong
+% component and "boundary" hands it the right one.
+%
+% Silent when wrong: both rules return a plausible mask, and only the identity
+% of the component differs.
+C = false(200);
+C(100:106, 20:140) = true;      % long thin arm, centroid ~(80,103)
+C(60:90,  160:190) = true;      % compact blob, centroid ~(175,75)
+seed = [144 103];               % 3 px past the arm's end, on background
+
+far  = cnngvf.seedMasks(C, seed, cfg.Post.MinArea, "centroid");
+near = cnngvf.seedMasks(C, seed, cfg.Post.MinArea, "boundary");
+assert(far{1}(75, 175) && ~far{1}(103, 140), ...
+    'the centroid rule no longer picks the compact blob - the fixture stopped separating the rules');
+assert(near{1}(103, 140) && ~near{1}(75, 175), ...
+    'the boundary rule did not claim the component the seed actually touches');
+
+% Omitting the argument must still behave exactly as it always has.
+assert(isequal(cnngvf.seedMasks(C, seed, cfg.Post.MinArea), far), ...
+    'the 3-argument call no longer defaults to the centroid rule');
+
+% Boundary distance must respect minArea: a sub-threshold component sitting
+% right next to the seed cannot be claimed just because it is close.
+D = C; D(101:105, 145:150) = true;   % 30 px, adjacent to the seed, below minArea
+adj = cnngvf.seedMasks(D, seed, cfg.Post.MinArea, "boundary");
+assert(~adj{1}(103, 147) && adj{1}(103, 140), ...
+    'the boundary rule claimed a component below minArea');
+
+fprintf('  seed mask selection       ok (centroid and boundary rules)\n');
 end
 
 
@@ -350,7 +382,7 @@ phi0   = cnngvf.initPhi(P, seeds, cfg);
 BW     = cnngvf.drlse(P, phi0, u, v, cfg);
 
 BW   = imfill(imclose(BW, cfg.Post.MorphElement), 'holes');
-[~, mask] = cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea);
+[~, mask] = cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule);
 end
 
 

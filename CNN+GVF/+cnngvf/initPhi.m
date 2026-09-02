@@ -22,7 +22,7 @@ BW0 = P > cfg.Drlse.tau;
 BW0 = imopen(BW0, strel('disk', 1));
 
 % minArea 0: a small blob here is a lesion that has not grown yet.
-[~, BW0] = cnngvf.seedMasks(BW0, seeds, 0);
+[~, BW0] = cnngvf.seedMasks(BW0, seeds, 0, cfg.Post.ClaimRule);
 
 BW0 = BW0 | seedDisks(size(P), seeds, BW0, cfg);
 

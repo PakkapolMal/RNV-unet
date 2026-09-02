@@ -25,6 +25,9 @@ function cfg = arm(cfg, name)
 %    "unclustered"          DRAC22, raw detections, 2 channels. The DRAC22-only
 %                           record; frozen so its measured numbers stay
 %                           reproducible.
+%    "unclustered_boundary" "unclustered" with the seed claiming rule fixed and
+%                           nothing else changed. Borrows that arm's networks,
+%                           so it pairs with the frozen record image by image.
 %    "DRACTUH_unclustered"  DRAC22 + TUH, raw detections, 2 channels. The
 %                           current arm.
 %
@@ -56,6 +59,16 @@ cfg.Denoise        = a.denoise;
 cfg.Vessel.enabled = a.vessel;
 cfg.Patch.perSeed  = a.perSeed;
 cfg.Patch.seedTolerance = a.seedTolerance;
+cfg.Post.ClaimRule = a.claimRule;
+
+% Which arm's cross-validation networks this arm scores with. Normally its own.
+% "unclustered_boundary" borrows "unclustered"'s, because it differs from it
+% only in post-processing - no trainable parameter is involved, so retraining
+% would destroy the pairing and buy nothing.
+cfg.CV.ModelArm = a.cvModelArm;
+if strlength(cfg.CV.ModelArm) == 0
+    cfg.CV.ModelArm = cfg.Arm;
+end
 
 % Built from Paths.Main rather than appended to whatever is already there, so
 % applying an arm twice is a no-op instead of nesting result/x/y directories.
@@ -89,15 +102,36 @@ function t = armTable()
 % seedTolerance 0 on both frozen arms: they are the record behind published
 % numbers, and labelling more seeds than they were measured with would make
 % them silently unreproducible. Only the current arm gets the tolerance.
+%
+% claimRule "centroid" on both frozen arms for the same reason: cnngvf.seedMasks
+% now defaults to the fixed "boundary" rule, and letting that reach an arm whose
+% numbers are already published would rescore the record without saying so.
 t.clustered = struct( ...
     'datasets', "DRAC22", 'points', "clustered", 'evalMode', "segment", ...
     'denoise', [3 3], 'vessel', true, 'perSeed', 16, 'seedTolerance', 0, ...
+    'claimRule', "centroid", 'cvModelArm', "", ...
     'model', 'rnvNet.mat', 'output', '');
 
 t.unclustered = struct( ...
     'datasets', "DRAC22", 'points', "unclustered", 'evalMode', "image", ...
     'denoise', [], 'vessel', false, 'perSeed', 4, 'seedTolerance', 0, ...
+    'claimRule', "centroid", 'cvModelArm', "", ...
     'model', 'rnvNet_unclustered.mat', 'output', 'unclustered');
+
+% "unclustered" with the claiming rule fixed, and NOTHING else changed. Same
+% domain, same point set, same channels, same networks - models/cv/unclustered_
+% fold<k>.mat, borrowed via cvModelArm rather than retrained - so it pairs with
+% the frozen 0.4603 record image by image, and the delta between them measures
+% the claiming rule alone.
+%
+% This is also the arm the reduced-pipeline ablation runs on: REDUCE.md requires
+% the claiming rule to be fixed BEFORE the level set is measured, so that the
+% two changes are not confounded.
+t.unclustered_boundary = struct( ...
+    'datasets', "DRAC22", 'points', "unclustered", 'evalMode', "image", ...
+    'denoise', [], 'vessel', false, 'perSeed', 4, 'seedTolerance', 0, ...
+    'claimRule', "boundary", 'cvModelArm', "unclustered", ...
+    'model', 'rnvNet_unclustered.mat', 'output', 'unclustered_boundary');
 
 % perSeed 4, raised from 1 after measuring what 1 cost.
 %
@@ -121,5 +155,6 @@ t.unclustered = struct( ...
 t.DRACTUH_unclustered = struct( ...
     'datasets', ["DRAC22", "TUH"], 'points', "unclustered", 'evalMode', "image", ...
     'denoise', [], 'vessel', false, 'perSeed', 4, 'seedTolerance', 20, ...
+    'claimRule', "boundary", 'cvModelArm', "", ...
     'model', 'rnvNet_DRACTUH_unclustered.mat', 'output', 'DRACTUH_unclustered');
 end

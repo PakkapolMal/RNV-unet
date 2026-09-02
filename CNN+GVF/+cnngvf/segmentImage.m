@@ -33,7 +33,7 @@ BW      = cnngvf.drlse(P, phi0, u, v, cfg);
 BW = imclose(BW, cfg.Post.MorphElement);
 BW = imfill(BW, 'holes');    % the ground truth in RNV-DRAC22GT/FilledGT is filled
 
-[perSeed, mask] = cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea);
+[perSeed, mask] = cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule);
 
 contours = bwboundaries(mask, 'noholes');
 end

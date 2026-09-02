@@ -296,6 +296,22 @@ cfg.CV.innerVal = 2;   % training images held out for best-checkpoint selection
 cfg.Post.MinArea      = 500;
 cfg.Post.MorphElement = strel('disk', 2);
 
+% How a seed that lands on background picks a component: "boundary" (distance
+% to the nearest pixel of a component) or "centroid" (distance to its centre of
+% mass).
+%
+% "boundary" is the fixed rule and the default. It matches how
+% cnngvf.prepareData labels TRAINING seeds, so the pipeline no longer answers
+% "which lesion does this seed belong to" two different ways at the two ends.
+% Centroid distance misassigns seeds around large concave lesions - a seed just
+% outside one can be nearer another blob's centroid than its own - which is the
+% bug RNV-Claude/main's selectSeedComponent was fixed for.
+%
+% cnngvf.arm pins the frozen arms back to "centroid": they are the record
+% behind published numbers, and silently rescoring them would make those
+% numbers unreproducible from this code.
+cfg.Post.ClaimRule    = "boundary";
+
 % --- Hardware --------------------------------------------------------------
 % gpuDevice enumerates CUDA devices only, so an onboard Intel GPU never
 % appears here and can never be picked up for compute - MATLAB's device index
