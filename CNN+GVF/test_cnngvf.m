@@ -18,6 +18,7 @@ testGvfField(cfg);
 testRefinement(cfg);
 testPostModes(cfg);
 testSeedComponents(cfg);
+testProbCache(cfg);
 testDomain(cfg);
 testArms(cfg);
 testSeedTolerance(cfg);
@@ -237,6 +238,45 @@ fprintf('  seed mask selection       ok (centroid and boundary rules)\n');
 end
 
 
+function testProbCache(cfg)
+% The cache is what makes a post-processing change cost seconds instead of 18 h,
+% so two things about it have to hold: it must not quantize, and it must refuse
+% to hand back a P that its own network trained on.
+folds = cnngvf.cvFolds(cfg);
+held  = folds{2}(1);            % an image fold 2 holds out
+cacheDir = tempname;
+cleanup  = onCleanup(@() rmdir(cacheDir, 's'));
+
+P = single(rand(64));           % values that uint8 could not survive
+cnngvf.probCache("write", cacheDir, held, P, struct('fold', 2, 'arm', "test"));
+
+got = cnngvf.probCache("read", cacheDir, held, cfg);
+assert(isa(got.P, 'single'), 'cache round-tripped P as %s', class(got.P));
+assert(isequal(got.P, P), ...
+    'cached P is not bit-exact - a quantized cache cannot support a tau sweep');
+assert(got.meta.fold == 2, 'cache lost the fold index');
+
+assert(ismember(held, string(cnngvf.probCache("list", cacheDir))), ...
+    'list did not report the image just written');
+
+% --- the leakage guard, in both directions -------------------------------
+% The same image, re-tagged with a fold that does NOT hold it out: that P came
+% from a network which trained on it. In-sample, and silent - it scores, and it
+% scores well.
+cnngvf.probCache("write", cacheDir, held, P, struct('fold', 3, 'arm', "test"));
+assertErrorId(@() cnngvf.probCache("read", cacheDir, held, cfg), ...
+    'cnngvf:probCache:leakage', 'a P tagged with the wrong fold was accepted');
+
+% No fold at all - what a plain run_batch writes, whose model trained on most
+% of the domain.
+cnngvf.probCache("write", cacheDir, held, P, struct('fold', NaN, 'arm', "test"));
+assertErrorId(@() cnngvf.probCache("read", cacheDir, held, cfg), ...
+    'cnngvf:probCache:noFold', 'a P with no fold index was accepted');
+
+fprintf('  prob cache                ok (single, fold-guarded)\n');
+end
+
+
 function testDomain(cfg)
 % The manifest is the join between an image and its mask, and it is the piece
 % TUH broke: nvImages/nv (N).png pairs with nvGtImages/gt (N).png, so the
@@ -445,4 +485,17 @@ end
 
 function s = iou(a, b)
 s = nnz(a & b) / max(nnz(a | b), 1);
+end
+
+
+function assertErrorId(fn, wantId, msg)
+% A guard that does not fire is worse than no guard: it reads as protection.
+try
+    fn();
+catch err
+    assert(strcmp(err.identifier, wantId), ...
+        '%s (threw %s instead of %s)', msg, err.identifier, wantId);
+    return;
+end
+error('%s (nothing was thrown)', msg);
 end

@@ -82,8 +82,28 @@ for d = string(struct2cell(dirs))'
     end
 end
 
+% Probability-map cache. Off unless a caller asks: cfg.Cache.Prob names the
+% directory, cfg.Fold the fold whose held-out set this run scores. A cache
+% written without a fold cannot be shown to be out-of-sample, and
+% cnngvf.probCache refuses to score it later - which is the intended behaviour
+% for a plain run_batch, whose model trained on most of the domain.
+cacheDir = "";
+if isfield(cfg, 'Cache') && isfield(cfg.Cache, 'Prob')
+    cacheDir = string(cfg.Cache.Prob);
+end
+fold = NaN;
+if isfield(cfg, 'Fold') && ~isempty(cfg.Fold)
+    fold = cfg.Fold;
+end
+% Every score is tied to the localization CSVs in place when it was measured,
+% and those live outside version control and have been revised repeatedly.
+csvMtimes = csvStamps(cfg);
+
 fprintf('run_batch | arm %s | %d images, %d seeds | device: %s\n', ...
     armLabel(cfg), numel(images), numel(names), cfg.GpuName);
+if cacheDir ~= ""
+    fprintf('Prob cache: %s (fold %d)\n', cacheDir, fold);
+end
 fprintf('Datasets: %s\n', strjoin(cfg.ActiveDatasets, ' + '));
 fprintf('Output: %s\n\n', cfg.Paths.Output);
 
@@ -108,6 +128,18 @@ for i = 1:n
 
     imwrite(mask,        fullfile(dirs.combined, char(stem + ".png")));
     imwrite(im2uint8(P), fullfile(dirs.prob,     char(stem + ".png")));
+
+    % The full-precision P, when a caller asked for it. run_cv does, per fold,
+    % so that every downstream post-processing variant can be scored off cached
+    % P in seconds instead of paying for a fresh 18 h cross-validation. The
+    % uint8 dump above is the human-viewable artefact and is not this.
+    if cacheDir ~= ""
+        cnngvf.probCache("write", cacheDir, imgName, P, struct( ...
+            'fold',      fold, ...
+            'arm',       cfg.Arm, ...
+            'netFile',   string(cfg.Paths.Model), ...
+            'csvMtimes', csvMtimes));
+    end
     rnv.saveOverlay(fullfile(dirs.overlay, char(stem + ".png")), img, imgSeeds, contours);
 
     % Per-seed masks are written under the ground truth's own naming scheme so
@@ -168,6 +200,30 @@ end
 % =========================================================================
 % LOCAL FUNCTIONS
 % =========================================================================
+
+function stamps = csvStamps(cfg)
+%CSVSTAMPS Modification times of the localization CSVs behind this run, so a
+%  cached P records which revision of them produced it.
+stamps = struct();
+for d = cfg.Datasets
+    if ~ismember(d.Name, cfg.ActiveDatasets)
+        continue;
+    end
+    if cfg.Points == "clustered"
+        p = d.Clustered;
+    else
+        p = d.Unclustered;
+    end
+    info = dir(p);
+    if isempty(info)
+        stamps.(char(d.Name)) = "missing";
+    else
+        stamps.(char(d.Name)) = string(datetime(info.datenum, ...
+            'ConvertFrom', 'datenum', 'Format', 'yyyy-MM-dd HH:mm:ss'));
+    end
+end
+end
+
 
 function s = armLabel(cfg)
 if strlength(cfg.Arm) > 0

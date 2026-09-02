@@ -292,6 +292,21 @@ cfg.Images = strings(0, 1);
 cfg.CV.k        = 5;   % 68 domain images -> folds of 14/14/14/13/13
 cfg.CV.innerVal = 2;   % training images held out for best-checkpoint selection
 
+% Which arm's fold networks to score with. Normally this arm's own; cnngvf.arm
+% overrides it for an arm that differs from another only in post-processing.
+cfg.CV.ModelArm = "";
+
+% Reuse those networks instead of training them. A post-processing change adds
+% and removes no trainable parameter, so retraining to evaluate one would
+% destroy the pairing and buy nothing - and cost ~18 h. With skipTrain the same
+% cross-validation is inference only: minutes.
+%
+% It cannot manufacture an out-of-sample claim it is not entitled to: the
+% networks it loads were trained by a real run_cv with these same deterministic
+% folds, and cnngvf.probCache re-checks the fold of every cached P before
+% anything scores it.
+cfg.CV.skipTrain = false;
+
 % --- Post-processing -------------------------------------------------------
 cfg.Post.MinArea      = 500;
 cfg.Post.MorphElement = strel('disk', 2);

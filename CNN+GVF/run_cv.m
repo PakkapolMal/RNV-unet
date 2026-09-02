@@ -31,6 +31,21 @@ function [perImage, summary] = run_cv(arm, cfg)
 %  concatenates the folds into <Output>/cv/per_image.csv. Output is already
 %  arm-specific, so this cannot overwrite an earlier arm's record.
 %
+%  Also caches each fold's probability maps to <Output>/cv/probcache/, stamped
+%  with the fold that held the image out. That is what lets a post-processing
+%  change be scored by run_ablate in seconds instead of another 18 h here, and
+%  cnngvf.probCache re-checks the stamp before anything is scored.
+%
+%  cfg.CV.skipTrain reuses existing fold networks instead of training them:
+%
+%     cfg = cnngvf.defaults(); cfg.CV.skipTrain = true;
+%     run_cv("unclustered_boundary", cfg)     % minutes, not 18 h
+%
+%  For a change with no trainable parameter in it - a claiming rule, a
+%  threshold, the whole reduced pipeline - retraining would destroy the pairing
+%  and buy nothing. cfg.CV.ModelArm says whose networks to borrow; training
+%  never writes to that path.
+%
 %  Folds are pooled across datasets and stratified by lesion area. per_image.csv
 %  carries a Dataset column and the summary prints a per-dataset breakout, so a
 %  pooled run can be inspected per device without being re-run.
@@ -104,14 +119,30 @@ for f = 1:k
     fc = cfg;
     fc.Split.Exclude = test;    % never seen by training or checkpoint selection
     fc.Split.Val     = inner;
-    fc.Paths.Model   = fullfile(modelDir, sprintf('%s_fold%d.mat', arm, f));
-
-    cnngvf.trainNet(fc);
+    if cfg.CV.skipTrain
+        % Borrowed networks are read, never written: the path uses ModelArm
+        % only on this side of the branch, so training can never overwrite the
+        % networks of the arm it is borrowing from.
+        fc.Paths.Model = fullfile(modelDir, sprintf('%s_fold%d.mat', ...
+            cfg.CV.ModelArm, f));
+        if ~isfile(fc.Paths.Model)
+            error('cnngvf:runCv:noFoldModel', ...
+                ['cfg.CV.skipTrain is set but there is no network at %s.\n' ...
+                 'Either run this arm without skipTrain, or point cfg.CV.ModelArm ' ...
+                 'at an arm whose fold networks exist.'], fc.Paths.Model);
+        end
+        fprintf('  reusing %s (skipTrain)\n', fc.Paths.Model);
+    else
+        fc.Paths.Model = fullfile(modelDir, sprintf('%s_fold%d.mat', arm, f));
+        cnngvf.trainNet(fc);
+    end
 
     % Score this fold's model on this fold's held-out images only.
     bc = fc;
     bc.Images       = test;
     bc.Paths.Output = fullfile(cvRoot, sprintf('fold%d', f));
+    bc.Fold         = f;                                  % stamped into the P cache
+    bc.Cache.Prob   = fullfile(cvRoot, 'probcache');
     run_batch(bc);
 end
 
