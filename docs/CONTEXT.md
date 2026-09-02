@@ -71,6 +71,17 @@ This is the step that makes the output *localization-driven* rather than a plain
 threshold.
 _Avoid_: assign, match, select
 
+**Near-miss**:
+A detection landing just outside a lesion — within the seed tolerance. A
+disagreement about where the boundary is, not a localization error, and labelled
+with the lesion it missed.
+_Avoid_: off-lesion point, boundary error, outlier
+
+**Detector Error**:
+A detection too far from any lesion to be a near-miss. Rejected from training.
+Distinguished from a near-miss purely by distance, and the two separate cleanly.
+_Avoid_: false positive (ambiguous — the segmenter has those too), bad point, outlier
+
 ### The data
 
 **Domain**:

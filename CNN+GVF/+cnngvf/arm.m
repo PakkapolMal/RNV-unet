@@ -55,6 +55,7 @@ cfg.EvalMode       = a.evalMode;
 cfg.Denoise        = a.denoise;
 cfg.Vessel.enabled = a.vessel;
 cfg.Patch.perSeed  = a.perSeed;
+cfg.Patch.seedTolerance = a.seedTolerance;
 
 % Built from Paths.Main rather than appended to whatever is already there, so
 % applying an arm twice is a no-op instead of nesting result/x/y directories.
@@ -85,24 +86,40 @@ end
 % =========================================================================
 
 function t = armTable()
+% seedTolerance 0 on both frozen arms: they are the record behind published
+% numbers, and labelling more seeds than they were measured with would make
+% them silently unreproducible. Only the current arm gets the tolerance.
 t.clustered = struct( ...
     'datasets', "DRAC22", 'points', "clustered", 'evalMode', "segment", ...
-    'denoise', [3 3], 'vessel', true, 'perSeed', 16, ...
+    'denoise', [3 3], 'vessel', true, 'perSeed', 16, 'seedTolerance', 0, ...
     'model', 'rnvNet.mat', 'output', '');
 
 t.unclustered = struct( ...
     'datasets', "DRAC22", 'points', "unclustered", 'evalMode', "image", ...
-    'denoise', [], 'vessel', false, 'perSeed', 4, ...
+    'denoise', [], 'vessel', false, 'perSeed', 4, 'seedTolerance', 0, ...
     'model', 'rnvNet_unclustered.mat', 'output', 'unclustered');
 
-% perSeed 1, not 4. With balanceByImage the epoch is roughly perSeed x usable
-% seeds, and the combined domain has 792 usable seeds against DRAC22's 234 - so
-% perSeed 4 would be ~3170 patches per epoch against ~940, tripling every run
-% and pushing a 5-fold CV from ~4 h to ~13 h. Nothing measured says 4 beats 1;
-% it was only ever chosen to hold the epoch size constant against the clustered
-% arm, which is what 1 now does. Raise it once the domain is known to train.
+% perSeed 4, raised from 1 after measuring what 1 cost.
+%
+% With balanceByImage the epoch is roughly perSeed x usable seeds, so on this
+% domain's 842 usable seeds perSeed 1 gave ~780 patches per epoch against the
+% DRAC22-only arm's ~940. It was chosen to hold runtime down, and nothing
+% measured supported it. It underfit:
+%
+%   - validation loss flat across 30 epochs (0.421 -> 0.389, wobble +/-0.03)
+%   - single-split IoU 0.3852 over 68 images, of which 62 trained the model -
+%     and its DRAC22 subset scored 0.379 IN-sample against the DRAC22-only
+%     arm's 0.4603 cross-validated. An in-sample score below another model's
+%     out-of-sample score is a regression, not noise.
+%   - lesions over 100k px: precision 0.800 but recall 0.247. nv (21).png has
+%     113 seeds tiling a 432k px lesion and still recalled 12%, so the network
+%     was under-responding rather than running out of patch coverage.
+%
+% 4 restores the per-seed exposure of the other arms (~3370 patches/epoch).
+% Costs ~4x the runtime: ~5 h to train, and a 5-fold CV goes from ~4.5 h to
+% ~18 h at 20 epochs. Record in result/diagnostic_perSeed1/.
 t.DRACTUH_unclustered = struct( ...
     'datasets', ["DRAC22", "TUH"], 'points', "unclustered", 'evalMode', "image", ...
-    'denoise', [], 'vessel', false, 'perSeed', 1, ...
+    'denoise', [], 'vessel', false, 'perSeed', 4, 'seedTolerance', 20, ...
     'model', 'rnvNet_DRACTUH_unclustered.mat', 'output', 'DRACTUH_unclustered');
 end

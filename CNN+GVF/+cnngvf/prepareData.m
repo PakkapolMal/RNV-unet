@@ -89,6 +89,9 @@ imgIdx = arrayfun(@(n) find(images == n, 1), names);
 segMasks = cell(numel(names), 1);
 onBackground = false(numel(names), 1);
 
+tol      = cfg.Patch.seedTolerance;
+recovered = 0;
+
 for i = 1:numel(images)
     sel = find(names == images(i))';
     filled = rnv.loadMask(M.GtPath(i));
@@ -96,23 +99,43 @@ for i = 1:numel(images)
     L  = labelmatrix(CC);
     [h, w] = size(filled);
 
+    % Distance to the nearest lesion, and the index of the nearest lesion pixel.
+    % True boundary distance, not centroid distance: a seed just outside a large
+    % concave lesion can be nearer another blob's centroid than its own, which is
+    % the bug RNV-Claude/main's selectSeedComponent was fixed for.
+    [dist, nearest] = bwdist(filled);
+
     for k = sel
         row = min(max(round(seeds(k, 2)), 1), h);
         col = min(max(round(seeds(k, 1)), 1), w);
         id  = L(row, col);
+
         if id == 0
-            onBackground(k) = true;
-            continue;
+            % Outside every lesion. Near-misses are labelled with the lesion
+            % they just missed; genuine detector errors are dropped.
+            if dist(row, col) <= tol
+                id = L(nearest(row, col));
+                recovered = recovered + 1;
+            else
+                onBackground(k) = true;
+                continue;
+            end
         end
+
         m = false(h, w);
         m(CC.PixelIdxList{id}) = true;
         segMasks{k} = m;
     end
 end
 
+if recovered > 0
+    fprintf('Recovered %d seed(s) within %g px of a lesion (Patch.seedTolerance).\n', ...
+        recovered, tol);
+end
+
 if any(onBackground)
-    fprintf('Dropped %d of %d training seeds that land outside every lesion.\n', ...
-        nnz(onBackground), numel(names));
+    fprintf('Dropped %d of %d training seeds further than %g px from every lesion.\n', ...
+        nnz(onBackground), numel(names), tol);
     names    = names(~onBackground);
     seeds    = seeds(~onBackground, :);
     segMasks = segMasks(~onBackground);

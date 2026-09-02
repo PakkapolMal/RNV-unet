@@ -161,6 +161,30 @@ cfg.Patch.sigmaSeed = 32;    % Gaussian seed heat-map sigma (spec table)
 cfg.Patch.jitter    = 32;    % +/- px random crop offset during training
 cfg.Patch.perSeed   = 16;    % random crops per seed per epoch
 
+% How far outside a lesion a training seed may fall and still be labelled with
+% it, in pixels of true boundary distance.
+%
+% 0 reproduces the original rule: a seed is labelled only by the component it
+% is strictly inside, and anything else is dropped. That threw away 81 of 874
+% points - but they are not one population. Measured, their distance to the
+% nearest lesion is sharply bimodal, with NOTHING at all between 50 and 100 px:
+%
+%      <=5 px   36        100-200 px    7
+%     5-10 px    8           >200 px   21   (max 843)
+%    10-20 px    5
+%    20-50 px    4        50-100 px     0   <- clean separator
+%
+% The near group are boundary near-misses, not localization errors, and
+% dropping them discarded ~6% of the usable training set on a dataset that has
+% little to spare. The far group are genuine detector false positives -
+% confirmed by eye on 299.png (4 detections 307-726 px away while the real
+% lesion went undetected) and 419.png (one at 602 px on plain background).
+%
+% 20 sits inside the +/-32 px crop jitter the network already sees, and the
+% empty 50-100 px band means the exact value does not matter: anything in
+% 20-100 recovers the same near group and rejects the same far group.
+cfg.Patch.seedTolerance = 20;
+
 % Spend the epoch equally across IMAGES rather than equally across seeds. Only
 % matters when seed counts are uneven, i.e. for the unclustered detections; it
 % is a no-op for the clustered centres, where every image has 1-7. See

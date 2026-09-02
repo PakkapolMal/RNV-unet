@@ -50,13 +50,20 @@ run_batch_unbalanced.m  score the archived pre-balancing network
 
 68 ground-truth images across two datasets, pooled:
 
-| dataset | images | unclustered points | usable | mask naming |
+| dataset | images | unclustered points | usable for training | mask naming |
 |---|---|---|---|---|
-| DRAC22 | 41 | 283 | 234 | `458.png` -> `FilledGT/458.png` |
-| TUH | 27 | 591 | 558 | `nv (1).png` -> `nvGtImages/gt (1).png` |
+| DRAC22 | 41 | 283 | 259 | `458.png` -> `FilledGT/458.png` |
+| TUH | 27 | 591 | 583 | `nv (1).png` -> `nvGtImages/gt (1).png` |
 
 `cnngvf.manifest` is the single place that resolves an image to its mask, because the two
 datasets do not name them the same way. Adding a dataset is one entry in `cfg.Datasets`.
+
+The localization points come from separate research and contain errors. 81 of 874 fall
+outside every lesion, but they split cleanly into **49 boundary near-misses** (median 7.8 px,
+kept and labelled with the lesion they missed) and **32 genuine detector errors** (>100 px,
+rejected) — with nothing at all between 50 and 100 px. `cfg.Patch.seedTolerance = 20` draws
+the line. Rejection uses ground truth, so it applies to **training only**: all 874 points
+still seed inference.
 
 ## Arms
 

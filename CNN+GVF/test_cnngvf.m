@@ -19,6 +19,7 @@ testRefinement(cfg);
 testSeedComponents(cfg);
 testDomain(cfg);
 testArms(cfg);
+testSeedTolerance(cfg);
 testSegGtNaming(cfg);
 testGpuMatchesCpu(cfg);
 
@@ -213,6 +214,52 @@ for a = cnngvf.arm()
 end
 
 fprintf('  arm definitions           ok (%s)\n', strjoin(cnngvf.arm(), ', '));
+end
+
+
+function testSeedTolerance(~)
+% A seed just outside a lesion must be labelled with that lesion; one far away
+% must still be dropped. Synthetic, so the boundary behaviour is exact rather
+% than inferred from dataset counts.
+%
+% This is silent when wrong in both directions: too small and real training
+% data is discarded, too large and background points are labelled as lesions,
+% teaching the network to ignore its own heat-map. Neither raises an error.
+gt = false(400);
+gt(100:200, 100:200) = true;      % lesion, boundary at col 200
+[dist, nearest] = bwdist(gt);
+L = labelmatrix(bwconncomp(gt));
+
+% [seed x, distance from the lesion edge]
+cases = [210, 10; 215, 15; 225, 25; 350, 150];
+tol   = 20;
+got   = false(size(cases, 1), 1);
+
+for i = 1:size(cases, 1)
+    col = cases(i, 1); row = 150;
+    id  = L(row, col);
+    if id == 0 && dist(row, col) <= tol
+        id = L(nearest(row, col));
+    end
+    got(i) = id > 0;
+end
+
+assert(got(1) && got(2), 'a near-miss seed inside the tolerance was dropped');
+assert(~got(3), 'a seed beyond the tolerance was labelled');
+assert(~got(4), 'a distant seed was labelled');
+
+% Distance must be to the BOUNDARY, not the centroid: a seed 10 px outside a
+% large lesion is 60 px from its centroid, so a centroid rule would reject it.
+st = regionprops(gt, 'Centroid');
+assert(hypot(210 - st.Centroid(1), 150 - st.Centroid(2)) > tol, ...
+    'the synthetic lesion is too small to distinguish boundary from centroid distance');
+
+% tolerance 0 must reproduce strict containment exactly - the frozen arms
+% depend on it.
+assert(L(150, 210) == 0 && dist(150, 210) > 0, ...
+    'tolerance 0 would still label an outside seed');
+
+fprintf('  seed tolerance            ok (%g px, boundary distance)\n', tol);
 end
 
 

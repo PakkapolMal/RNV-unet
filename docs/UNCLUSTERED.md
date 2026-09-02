@@ -23,11 +23,14 @@ measurement behind every non-obvious choice. Implementation:
 **68 images across two datasets**, pooled. Every image with ground truth is in
 scope; `cnngvf.manifest` is the single place that says so.
 
-| | images | points (unclustered) | usable | off-lesion | GT area range |
+| | images | points (unclustered) | usable | rejected | GT area range |
 |---|---|---|---|---|---|
-| **DRAC22** | 41 | 283 | 234 | 49 (17.3%) | 2 016 – 239 227 px |
-| **TUH** | 27 | 591 | 558 | 33 (5.6%) | 1 106 – 432 533 px |
-| **combined** | **68** | **874** | **793** | 81 (9.3%) | 1 106 – 432 533 px |
+| **DRAC22** | 41 | 283 | 259 | 24 | 2 016 – 239 227 px |
+| **TUH** | 27 | 591 | 583 | 8 | 1 106 – 432 533 px |
+| **combined** | **68** | **874** | **842** | **32 (3.7%)** | 1 106 – 432 533 px |
+
+Usable counts are at `Patch.seedTolerance = 20` — see [Seed tolerance](#seed-tolerance)
+below. At tolerance 0 (the frozen arms' setting) they are 234 / 558 / 793.
 
 Both are OCTA en-face, 1024×1024, but from **different devices** — DRAC22 as
 distributed by the DRAC 2022 challenge, TUH from a ZEISS PLEX Elite. TUH
@@ -40,6 +43,55 @@ question is RNV segmentation, not per-device performance, so a fold is not
 restricted to one device. Area-stratified round-robin dealing interleaves them
 in practice — every fold currently holds both — and `per_image.csv` carries a
 `Dataset` column so a pooled run can be broken out afterwards without re-running.
+
+### Seed tolerance
+
+The localization points come from separate research and contain errors: 81 of 874 fall
+outside every ground-truth lesion. **They are not one population.** Measured as true
+boundary distance to the nearest lesion, the distribution is sharply bimodal, with
+*nothing at all* between 50 and 100 px:
+
+| distance | points | | distance | points |
+|---|---|---|---|---|
+| ≤ 5 px | 36 | | 50–100 px | **0** ← separator |
+| 5–10 px | 8 | | 100–200 px | 7 |
+| 10–20 px | 5 | | > 200 px | 21 (max 843) |
+| 20–50 px | 4 | | | |
+
+The near group are **boundary near-misses**, not localization errors — a detection 3 px
+outside a lesion edge is a quibble about where the annotator drew the line. The far group
+are **genuine detector false positives**, confirmed by eye:
+
+- **`299.png`** — all 4 detections 307–726 px away on ordinary capillary background, while
+  the real lesion (a clearly visible tuft) went undetected entirely.
+- **`419.png`** — 2 detections correctly on the lesion, one at 116 px on normal
+  vasculature, one at 602 px on plain background.
+
+In both cases the ground truth is correct and the *detector* is wrong, so dropping the far
+points is the right repair. Neither is an under-annotation.
+
+`cfg.Patch.seedTolerance = 20` px labels a seed with the nearest lesion within that
+distance, and drops the rest: **49 recovered, 32 rejected**, lifting usable training seeds
+from 793 to 842. The exact value does not matter — the empty 50–100 px band means anything
+in 20–100 behaves identically — and 20 sits inside the ±32 px crop jitter the network
+already sees.
+
+Distance is to the **boundary**, not the centroid. A seed just outside a large concave
+lesion can be nearer another blob's centroid than its own; that is the bug
+`RNV-Claude/main`'s `selectSeedComponent` was fixed for, and `cnngvf.seedMasks` still uses
+the centroid rule at prediction time (see [Known limits](#known-limits-and-next-steps)).
+
+**Rejection uses ground truth, so it applies to training only.** Filtering the points at
+*inference* by whether they hit a lesion would be leakage — using the answer to choose the
+question — and no such number is reportable. An *oracle* inference filter was measured at
+only **+0.015** anyway, so the ceiling is low. A legitimate inference-time filter would
+read only the model's own output (drop a seed whose patch never produces `P > tau`); that
+is untried.
+
+Two images end up with ground truth but no usable seed — **`299.png` and `445.png`**. They
+are still scored, and will score ≈ 0. That is a localization-stage gap being charged to the
+segmenter, which is the honest accounting: whole-image scoring is supposed to charge for
+lesions missed entirely.
 
 ### The TUH acquisition overlay
 
@@ -57,10 +109,71 @@ suspect, and the fix is a masking step in `rnv.loadImage` before `rgb2gray`.
 
 ## Result
 
-> **Every number below was measured on DRAC22 alone, before TUH existed.**
-> They are the frozen record of the `unclustered` arm. No combined-domain
-> figure has been measured yet — `run_cv("DRACTUH_unclustered")` produces the
-> first one.
+> **Every number in this section was measured on DRAC22 alone, before TUH
+> existed.** They are the frozen record of the `unclustered` arm. No
+> cross-validated combined-domain figure exists yet —
+> `run_cv("DRACTUH_unclustered")` produces the first one.
+
+### The perSeed=1 underfit
+
+The first combined-domain training run used `Patch.perSeed = 1`, chosen purely to hold
+runtime down and explicitly unmeasured. **It underfit, and the evidence is worth keeping
+because it is the kind that is easy to misread as a real result.**
+
+| | |
+|---|---|
+| validation loss, epochs 1 → 30 | 0.421 → 0.389, **wobble ±0.03** |
+| single-split IoU, 68 images | 0.3852 (F1 0.533, precision 0.580, recall 0.644) |
+| ... DRAC22 subset | **0.379** |
+| ... TUH subset | 0.395 |
+| lesions > 100k px (n=8) | IoU 0.231, precision **0.800**, recall **0.247** |
+
+Three signals, all pointing the same way:
+
+1. **Validation loss never descended.** Total improvement over 29 epochs was 0.032, the
+   same size as the epoch-to-epoch noise. With only 6 validation images the selection
+   signal is smaller than the wobble, so `best-validation` picking epoch 15 may be luck.
+2. **An in-sample score below another model's out-of-sample score.** 62 of the 68 images
+   trained this model, so 0.385 is ~91% in-sample and should be *flattered*. Its DRAC22
+   subset scored 0.379 against the DRAC22-only arm's cross-validated **0.4603**. That
+   direction is not achievable by noise.
+3. **High precision, collapsed recall on large lesions.** `nv (21).png` has 113 seeds
+   tiling a 432k px lesion and recalled 12% at precision 0.90 — the network under-responded
+   rather than running out of patch coverage, which is what distinguishes underfitting from
+   the known patch-size limit.
+
+`perSeed` is now 4, restoring the per-seed exposure the other arms have.
+
+### Confirmed: perSeed 1 → 4 is worth +0.141 IoU
+
+Retrained identically apart from `perSeed`. **Both arms single-split on the same 68 images,
+so the protocol flatters both equally** — the direction and the mechanism are trustworthy,
+the magnitude is not.
+
+| | n | IoU (1 → 4) | Δ | precision | recall |
+|---|---|---|---|---|---|
+| **all** | 68 | 0.3852 → **0.5262** | **+0.141** | 0.580 → 0.710 | 0.644 → 0.691 |
+| DRAC22 | 41 | 0.3786 → 0.5218 | +0.143 | 0.524 → 0.699 | 0.656 → 0.664 |
+| TUH | 27 | 0.3952 → 0.5329 | +0.138 | 0.665 → 0.726 | 0.625 → 0.733 |
+| **GT > 100k px** | 8 | 0.2313 → **0.4403** | **+0.209** | 0.800 → 0.875 | **0.247 → 0.482** |
+| GT ≤ 100k px | 60 | 0.4057 → 0.5377 | +0.132 | 0.550 → 0.688 | 0.697 → 0.719 |
+
+Improved on **60 of 68 images**; the 8 regressions are small (worst −0.06). Precision *and*
+recall both rose, which is unusual and rules out a simple threshold shift.
+
+Validation loss confirms it independently: best **0.324** against `perSeed = 1`'s **0.389**,
+with a visible downward trend instead of a flat line.
+
+**This revises a standing conclusion.** Large lesions were documented as failing because a
+512 px patch cannot cover them. Recall on lesions over 100k px nearly doubled (0.247 → 0.482)
+with *no change to patch size* — so a large part of that failure was undertraining, not
+geometry. The patch limit is real but was masking a bigger, cheaper problem.
+
+**None of 0.385 / 0.526 is quotable** — single-split, ~91% in-sample. The paired delta is
+the finding; `run_cv` is what produces a reportable number. The `perSeed = 1` record is in
+`result/diagnostic_perSeed1/`.
+
+### Frozen DRAC22-only record
 
 ### DRAC22-only configuration, full dataset *(superseded scope)*
 
@@ -344,9 +457,9 @@ in [`+cnngvf/arm.m`](../CNN+GVF/+cnngvf/arm.m).
 | item | value |
 |---|---|
 | images | 1024×1024 OCTA en-face — **68 with ground truth**, all seeded (41 DRAC22 + 27 TUH) |
-| training seeds | the unclustered CSVs of both datasets — 874 rows, 793 usable (81 fall outside every lesion) |
-| inference seeds | same |
-| labels | the whole-image GT connected component containing each seed |
+| training seeds | the unclustered CSVs of both datasets — 874 rows, **842 usable** (32 rejected as detector errors; see [Seed tolerance](#seed-tolerance)) |
+| inference seeds | **all 874** — rejection uses ground truth, so it cannot apply at inference |
+| labels | the GT component containing each seed, or the nearest within `Patch.seedTolerance` |
 | scoring | union mask vs the whole GT mask (`EvalMode = "image"`) |
 
 `cnngvf.manifest` defines the domain by scanning each dataset's image directory and keeping
@@ -364,8 +477,8 @@ cross-validated 0.4163 was measured on 17 images, the 0.4603 on 41, and neither 
 Labels are computed by component lookup, not read from `SegmentFilledGT/`. Verified to
 reproduce all 35 DRAC22 segment files exactly, and it works for point sets those files are not
 keyed to — which is what lets both the unclustered detections and TUH be trained on at all.
-Seeds landing outside every lesion are dropped from training: labelling them against pure
-background would teach the network to ignore its own heat-map.
+Seeds further than `Patch.seedTolerance` from every lesion are dropped from training:
+labelling them against pure background would teach the network to ignore its own heat-map.
 
 **Scoring must be whole-image, not per-segment.** Several detections land on one lesion, so
 per-segment scoring would count that lesion once per detection and weight lesions by how many
@@ -394,8 +507,9 @@ what stops a runner disagreeing with the network it loads.
 |---|---|---|
 | `Patch.size` | **512** | 13 of 35 GT segments need a window > 256 px, and each scored badly at 256. At 512, 32 of 35 are fully covered. |
 | `Patch.jitter` | ±32 px | crop offset; the heat-map marks the seed, not the patch centre |
-| `Patch.perSeed` | **1** (combined arm) | with `balanceByImage` the epoch is ≈ `perSeed × usable seeds`. At 793 seeds, `perSeed = 4` would be ~3 170 patches/epoch against DRAC22's ~940 — tripling every run and pushing a 5-fold CV from ~4 h to ~13 h. Nothing measured says 4 beats 1; it only ever existed to hold epoch size constant, which 1 now does. |
+| `Patch.perSeed` | **4** (combined arm) | raised from 1 after measuring what 1 cost — see [The perSeed=1 underfit](#the-perseed1-underfit). ~3 180 patches/epoch, ~5 h to train. |
 | `Patch.balanceByImage` | **true** | equal patches per *image*, not per seed |
+| `Patch.seedTolerance` | **20 px** (combined arm), 0 on the frozen arms | how far outside a lesion a seed may fall and still be labelled with it. Recovers 49 near-misses, rejects 32 detector errors. See [Seed tolerance](#seed-tolerance). |
 
 **`balanceByImage` does two jobs on the combined domain.** Within a dataset it stops
 detection-rich images dominating: sampling uniformly per seed once gave `1115.png` 39% of the
@@ -617,13 +731,31 @@ MATLAB loop with a warning, and `mex GVF.cpp` restores it.
   first one. Every figure in this document is DRAC22-only.
 - **The TUH acquisition overlay is still in the images.** Straight-line false positives are the
   symptom to watch for; masking before `rgb2gray` is the fix.
-- **`perSeed = 1` is a runtime choice, not a measured one.** Re-measure against 4 once the
-  combined domain is known to train.
+- **Cross-validation costs ~18 h** at `perSeed = 4` / 20 epochs (5 h per training run at 30
+  epochs). Cutting either `perSeed` or epochs to save time now has a measured cost, so this
+  is the price of a reportable number.
+- **30 epochs may not be enough.** The `perSeed = 4` curve was still descending at epoch 29
+  (best 0.324, and 0.334 / 0.338 / 0.336 through the late 20s). Training longer is the
+  cheapest untested lever left — and note it points the *opposite* way from the
+  `perSeed = 1` curve, which flatlined by epoch 3 and made 30 look generous.
+- **Is `perSeed = 8` better still?** 4 was a restoration of the other arms' setting, not an
+  optimum. The 1 → 4 step was worth +0.141, so the curve has not obviously saturated.
+- **Whether the remaining large-lesion gap is patch size** is now open again. Recall on
+  lesions over 100k px went 0.247 → 0.482 on training alone; the rest may or may not be
+  geometry. Test before investing in tiled inference.
 - **Precision is the weak side** (0.721 vs the clustered baseline's 0.797); the failure mode is
   over-segmentation.
-- **81 of 874 detections lie outside every lesion.** Dropped in training, but still generating
-  patches at inference where they can only add false positives. Filtering them at inference is
-  untried — an *oracle* filter was worth only +0.015, so the ceiling is low.
+- **32 detections are genuine localization errors.** Rejected from training, but they still
+  generate patches at inference, where they can only add false positives. A ground-truth
+  filter there would be leakage; a `P`-based one is untried, and an *oracle* filter was worth
+  only +0.015, so the ceiling is low.
+- **`299.png` and `445.png` have ground truth but no usable seed** and will score ≈ 0. That is
+  a localization-stage gap charged to the segmenter. If the headline is meant to measure
+  segmentation rather than the pair, they need re-localizing, not excluding.
+- **`cnngvf.seedMasks` still claims by nearest *centroid*, unlimited distance**, while training
+  now labels by nearest *boundary* within 20 px. Two rules for "which lesion does this seed
+  belong to". Centroid distance misassigns seeds around large concave lesions — the bug
+  `RNV-Claude/main` was fixed for — so aligning them is worth doing.
 - **Post-processing is exhausted.** The pipeline already beats an oracle that picks the best
   threshold per image (0.5315 vs 0.5068). Effort belongs in the probability map.
 - **The balanced-sampling gain is unverified.** Both DRAC22 CV arms used it, so they measure the
