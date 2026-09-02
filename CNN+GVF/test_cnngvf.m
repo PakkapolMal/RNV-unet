@@ -159,9 +159,10 @@ end
 % The fallback must actually fire, and only where the threshold left nothing.
 % A seed on empty background is the case it exists for.
 lonely = [seeds; 230 30];
-noDisk = cnngvf.maskFromProb(P, lonely, cfg);
-c = cfg; c.Post.diskFallback = true;
-disk = cnngvf.maskFromProb(P, lonely, c);
+off = cfg; off.Post.diskFallback = false;
+on  = cfg; on.Post.diskFallback  = true;
+noDisk = cnngvf.maskFromProb(P, lonely, off);
+disk   = cnngvf.maskFromProb(P, lonely, on);
 assert(~noDisk(30, 230) && disk(30, 230), ...
     'the disk fallback did not plant a disk at a seed the threshold missed');
 
@@ -169,6 +170,21 @@ assert(~noDisk(30, 230) && disk(30, 230), ...
 c = cfg; c.Post.tau = 0.95;
 assert(nnz(cnngvf.maskFromProb(P, seeds, c)) < nnz(mask), ...
     'raising Post.tau did not shrink the mask - the threshold is not being read');
+
+% run_ablate rebuilds the threshold mask in two stages so its two imclose cells
+% can share the expensive half. That reconstruction must equal maskFromProb
+% exactly, or the ablation is not measuring the pipeline it claims to.
+staged = P > cfg.Post.tau;
+if cfg.Post.diskFallback
+    staged = staged | cnngvf.seedDisks(size(P), seeds, staged, cfg);
+end
+if cfg.Post.imclose
+    staged = imclose(staged, cfg.Post.MorphElement);
+end
+staged = imfill(staged, 'holes');
+[~, stagedMask] = cnngvf.seedMasks(staged, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule);
+assert(isequal(stagedMask, mask), ...
+    'run_ablate''s staged reconstruction diverged from cnngvf.maskFromProb');
 
 fprintf('  post modes                ok (threshold, 8 cells, no gvf)\n');
 end

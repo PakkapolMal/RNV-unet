@@ -34,12 +34,15 @@ function [mask, perSeed] = maskFromProb(P, seeds, cfg)
 
 BW = P > cfg.Post.tau;
 
-% A seed the threshold left with nothing gets a disk, mirroring what
-% cnngvf.initPhi does for the level set - same radius, read from the same place,
-% and the same trigger (the seed's own pixel is not set) so that Post.mode is
-% the only thing differing between the two paths.
+% A seed the threshold left with nothing gets a disk, from the same
+% cnngvf.seedDisks the level set uses - same radius, same trigger - so that
+% Post.mode is the only thing differing between the two paths. What it MEANS
+% differs, though: for the level set a disk is an initialization that the
+% evolution then grows or discards, while here nothing evolves and the disk
+% survives into the output at its literal radius. That is why it is a factor in
+% the ablation rather than a settled default.
 if cfg.Post.diskFallback
-    BW = BW | seedDisks(size(P), seeds, BW, cfg);
+    BW = BW | cnngvf.seedDisks(size(P), seeds, BW, cfg);
 end
 
 if cfg.Post.imclose
@@ -54,29 +57,4 @@ BW = imfill(BW, 'holes');
 % evolution; with no evolution there is nothing to initialize, so the two
 % collapse into one call.
 [perSeed, mask] = cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule);
-end
-
-
-% =========================================================================
-% LOCAL FUNCTIONS
-% =========================================================================
-
-function D = seedDisks(sz, seeds, BW, cfg)
-% A disk of radius Drlse.seedRadius at every seed that claimed nothing.
-% Deliberately identical to cnngvf.initPhi's local function of the same name.
-D = false(sz);
-if isempty(seeds)
-    return;
-end
-
-r = cfg.Drlse.seedRadius;
-[xx, yy] = meshgrid(1:sz(2), 1:sz(1));
-for s = 1:size(seeds, 1)
-    row = min(max(round(seeds(s, 2)), 1), sz(1));
-    col = min(max(round(seeds(s, 1)), 1), sz(2));
-    if BW(row, col)
-        continue;   % already covered by a thresholded component
-    end
-    D = D | ((xx - seeds(s, 1)).^2 + (yy - seeds(s, 2)).^2 <= r^2);
-end
 end

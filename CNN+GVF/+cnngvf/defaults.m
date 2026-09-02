@@ -340,13 +340,22 @@ cfg.Post.mode = "levelset";
 % level-set mode, so sweeping this one cannot silently move the other arm.
 cfg.Post.tau = 0.5;
 
-% Plant a disk at any seed the threshold left with nothing, mirroring what
-% cnngvf.initPhi does for the level set. Off by default: initPhi's disk exists
-% so the balloon and GVF terms have something to GROW from, and in threshold
-% mode nothing grows - the disk would survive into the output at its literal
-% radius. Whether that helps or hurts is one of the three switches the ablation
-% measures.
-cfg.Post.diskFallback = false;
+% Plant a disk of radius Drlse.seedRadius at any seed the threshold left with
+% nothing. Read by BOTH paths - cnngvf.initPhi for the level set, and
+% cnngvf.maskFromProb for the reduced pipeline - so the ablation can vary it as
+% a genuine third factor rather than a threshold-only one.
+%
+% TRUE by default, because that is what cnngvf.initPhi has always done
+% unconditionally, and cfg.Post.mode "levelset" must reproduce the previous
+% behaviour exactly. (../docs/REDUCE.md writes "= false" here, but it also makes
+% byte-identical level-set reproduction the non-negotiable constraint, and those
+% two cannot both hold once this flag reaches initPhi. Reproduction wins.)
+%
+% What it does differs by mode, which is exactly why it is worth measuring in
+% both: for the level set the disk is an INITIALIZATION that the GVF and
+% curvature terms then grow or discard, while in threshold mode nothing evolves,
+% so the disk survives into the output at its literal 15 px radius.
+cfg.Post.diskFallback = true;
 
 % imclose(disk 2) before the fill. Justified for the level set as bridging the
 % 1-2 px gaps it leaves along ragged frond boundaries; whether a thresholded map
