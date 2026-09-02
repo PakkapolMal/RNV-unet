@@ -296,6 +296,48 @@ cfg.CV.innerVal = 2;   % training images held out for best-checkpoint selection
 cfg.Post.MinArea      = 500;
 cfg.Post.MorphElement = strel('disk', 2);
 
+% How P becomes a mask.
+%
+%  "levelset"  the full pipeline: f = |grad P| -> GVF -> phi0 -> DRLSE.
+%  "threshold" P > Post.tau directly (cnngvf.maskFromProb), skipping stages
+%              5-9 entirely. Nine stages become five.
+%
+% The whole GVF + level-set block was measured at +0.017 IoU over thresholding
+% the same P, and the reason it cannot do much better is structural: the GVF
+% field points at the |grad P| ridge, which IS the P ~ 0.5 iso-contour, so the
+% level set is largely an iso-contour finder for P. "threshold" makes that
+% removal switchable rather than permanent, so the two can be measured paired on
+% identical cached P - no trainable parameter is involved either way, which is
+% what makes the comparison free of training noise.
+%
+% Deletion is a later change. Until the ablation is reported, "levelset" is the
+% default and must reproduce the previous behaviour exactly.
+cfg.Post.mode = "levelset";
+
+% The threshold "threshold" mode applies. PRE-REGISTERED at 0.5 - the softmax
+% decision boundary, and the iso-contour the level set was already documented as
+% converging to. DO NOT TUNE IT BEFORE MEASURING: tau now sets the output
+% directly, so sweeping it on the scored images and quoting the best is leakage,
+% the same class of error as quoting Split.Val as held-out.
+%
+% Deliberately a separate name from cfg.Drlse.tau, which seeds phi0 and is
+% washed out by the evolution. cnngvf.segmentImage asserts they agree in
+% level-set mode, so sweeping this one cannot silently move the other arm.
+cfg.Post.tau = 0.5;
+
+% Plant a disk at any seed the threshold left with nothing, mirroring what
+% cnngvf.initPhi does for the level set. Off by default: initPhi's disk exists
+% so the balloon and GVF terms have something to GROW from, and in threshold
+% mode nothing grows - the disk would survive into the output at its literal
+% radius. Whether that helps or hurts is one of the three switches the ablation
+% measures.
+cfg.Post.diskFallback = false;
+
+% imclose(disk 2) before the fill. Justified for the level set as bridging the
+% 1-2 px gaps it leaves along ragged frond boundaries; whether a thresholded map
+% needs the same bridging is the second switch the ablation measures.
+cfg.Post.imclose = true;
+
 % How a seed that lands on background picks a component: "boundary" (distance
 % to the nearest pixel of a component) or "centroid" (distance to its centre of
 % mass).

@@ -16,6 +16,7 @@ fprintf('test_cnngvf | %s | device: %s\n\n', version('-release'), cfg.GpuName);
 testPatchGeometry(cfg);
 testGvfField(cfg);
 testRefinement(cfg);
+testPostModes(cfg);
 testSeedComponents(cfg);
 testDomain(cfg);
 testArms(cfg);
@@ -113,6 +114,62 @@ assert(bwconncomp(mask).NumObjects == 2, ...
     bwconncomp(mask).NumObjects);
 
 fprintf('  drlse refinement          ok (IoU %.3f)\n', iou(mask, truth));
+end
+
+
+function testPostModes(cfg)
+% The reduced pipeline (../docs/REDUCE.md): cnngvf.maskFromProb must return the
+% level-set path's contract exactly, must never touch the GVF, and must respond
+% to all three switches the ablation varies.
+[truth, seeds] = syntheticScene();
+P = stubProbMap(truth);
+
+cfg.Post.mode = "threshold";
+
+% Contract: same shapes and types as the level-set path, or run_batch writes
+% nothing for a seed and run_eval silently scores fewer seeds than were run.
+[mask, perSeed] = cnngvf.maskFromProb(P, seeds, cfg);
+assert(islogical(mask) && isequal(size(mask), size(P)), ...
+    'maskFromProb returned %s %s, expected a logical map the size of P', ...
+    class(mask), mat2str(size(mask)));
+assert(iscell(perSeed) && numel(perSeed) == size(seeds, 1), ...
+    'maskFromProb returned %d per-seed masks for %d seeds', ...
+    numel(perSeed), size(seeds, 1));
+assert(iou(mask, truth) > 0.8, ...
+    'threshold mode scored IoU %.3f on the synthetic scene', iou(mask, truth));
+
+% The GVF mex must not be reached at all. Structurally true of segmentImage's
+% branch, but that is what every silent regression was before it happened.
+cnngvf.gvfField();                       % reset the counter
+cnngvf.maskFromProb(P, seeds, cfg);
+assert(cnngvf.gvfField() == 0, 'threshold mode called the GVF');
+
+% All eight ablation cells must produce a usable mask - a switch combination
+% that errors would be discovered halfway through the run, not here.
+for dk = [false true]
+    for ic = [false true]
+        c = cfg; c.Post.diskFallback = dk; c.Post.imclose = ic;
+        m = cnngvf.maskFromProb(P, seeds, c);
+        assert(islogical(m) && nnz(m) > 0, ...
+            'diskFallback=%d imclose=%d produced an empty mask', dk, ic);
+    end
+end
+
+% The fallback must actually fire, and only where the threshold left nothing.
+% A seed on empty background is the case it exists for.
+lonely = [seeds; 230 30];
+noDisk = cnngvf.maskFromProb(P, lonely, cfg);
+c = cfg; c.Post.diskFallback = true;
+disk = cnngvf.maskFromProb(P, lonely, c);
+assert(~noDisk(30, 230) && disk(30, 230), ...
+    'the disk fallback did not plant a disk at a seed the threshold missed');
+
+% Post.tau must reach the output, or a tau sweep would measure nothing.
+c = cfg; c.Post.tau = 0.95;
+assert(nnz(cnngvf.maskFromProb(P, seeds, c)) < nnz(mask), ...
+    'raising Post.tau did not shrink the mask - the threshold is not being read');
+
+fprintf('  post modes                ok (threshold, 8 cells, no gvf)\n');
 end
 
 
