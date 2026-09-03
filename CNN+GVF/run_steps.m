@@ -5,13 +5,16 @@ function out = run_steps(imageName, arm)
 %  run_steps("nv (1).png")                    % a TUH image
 %  run_steps 458                              % the .png is optional
 %  run_steps("458.png", "unclustered")        % a specific arm
+%  run_steps("458.png", cfg)                  % a ready cfg, e.g. Post.mode
 %  out = run_steps(...)                       % also return every intermediate
 %
 %  Configuration comes from cnngvf.arm, so the final mask is identical to that
 %  image's mask in the arm's result directory. The difference is that every
 %  intermediate is written out instead of discarded.
 %
-%  Outputs land in <Output>/steps/<stem>/, numbered in pipeline order:
+%  Outputs land in <Output>/steps/<stem>/, numbered in pipeline order. Threshold
+%  mode writes to <stem>_threshold/ instead, so the two modes' dumps sit side by
+%  side rather than one overwriting the other:
 %
 %    01_raw.png            the image as read
 %    02_denoised.png       after the median filter, if any (CNN channel 1)
@@ -54,7 +57,14 @@ function out = run_steps(imageName, arm)
 if nargin < 2 || isempty(arm)
     arm = "DRACTUH_unclustered";
 end
-cfg = cnngvf.arm(cnngvf.defaults(), arm);
+% Either an arm name or a ready cfg, the same as run_batch and run_eval take -
+% which is how a caller asks for cfg.Post.mode "threshold" without inventing an
+% arm for it.
+if isstruct(arm)
+    cfg = arm;
+else
+    cfg = cnngvf.arm(cnngvf.defaults(), arm);
+end
 
 imageName = string(imageName);
 if ~endsWith(imageName, ".png")
@@ -82,7 +92,13 @@ if isempty(seeds)
     error('cnngvf:runSteps:noSeeds', '%s carries no %s points.', imageName, cfg.Points);
 end
 
-outDir = fullfile(cfg.Paths.Output, 'steps', char(stem));
+% Threshold mode gets its own directory so the two modes' dumps sit side by side
+% rather than one overwriting the other. Level-set mode keeps the original path.
+dumpName = char(stem);
+if cfg.Post.mode ~= "levelset"
+    dumpName = sprintf('%s_%s', stem, cfg.Post.mode);
+end
+outDir = fullfile(cfg.Paths.Output, 'steps', dumpName);
 patchDir = fullfile(outDir, 'patches');
 for d = string({outDir, patchDir})
     if ~exist(d, 'dir'), mkdir(d); end

@@ -131,6 +131,48 @@ It is the cheapest thing in the table to delete.
 single-seed image, which is where losing the level set's ability to grow off a small
 initialization should hurt most.
 
+## 3. `tau` sensitivity — flat, so the fixed threshold is safe
+
+`run_ablate("unclustered_boundary", "tau")`, threshold mode, 41 images, 0.30–0.80.
+**Reported as a curve. Its maximum is not a result** — choosing `tau` on the images being
+scored is leakage, the same error class as quoting `Split.Val` as held-out.
+
+| tau | mean IoU | median | mean F1 | | tau | mean IoU | median | mean F1 |
+|---|---|---|---|---|---|---|---|---|
+| 0.30 | 0.4427 | 0.4658 | 0.5816 | | 0.55 | 0.4464 | 0.4549 | 0.5873 |
+| 0.35 | 0.4528 | 0.4838 | 0.5920 | | 0.60 | 0.4361 | 0.4594 | 0.5769 |
+| 0.40 | 0.4551 | 0.4907 | 0.5960 | | 0.65 | 0.4292 | 0.4360 | 0.5718 |
+| 0.45 | 0.4567 | 0.4859 | 0.5982 | | 0.70 | 0.4053 | 0.3907 | 0.5468 |
+| **0.50** | **0.4545** | 0.4729 | **0.5965** | | 0.75 | 0.3896 | 0.3621 | 0.5309 |
+| 0.525 | 0.4544 | 0.4613 | 0.5963 | | 0.80 | 0.3660 | 0.3497 | 0.5026 |
+
+**Spread of mean IoU across 0.40–0.65: 0.0275.** Broad, single-peaked, no cliff — the
+pre-registered `tau = 0.5` sits 0.0022 below the sweep's best (0.45) and 0.0004 above its
+own neighbour at 0.525. By REDUCE.md's own decision rule, **a flat curve means the fixed
+`tau` is safe**, and there is no calibration problem in `P` to report.
+
+That the optimum sits slightly *below* 0.5 is consistent with the precision/recall shift in
+§2: the threshold path is already over-inclusive, so lowering `tau` further buys little.
+
+**Oracle per-image `tau`: 0.5201.** Not quotable — an upper bound only. It is +0.066 over
+the fixed threshold, which is a larger gap than anything in the factorial, and it is the
+one number here that says where the remaining headroom actually is: not in the contour
+method, but in how well-calibrated `P` is image to image.
+
+## 4. Stage dumps, both modes
+
+`run_steps("458.png", cfg)` with each `Post.mode`, into `steps/458/` and
+`steps/458_threshold/`:
+
+| | files | stages 6–11 | runtime | IoU |
+|---|---|---|---|---|
+| levelset | 15 png | `06_force` … `11_levelset_raw` written | 16.9 s | 0.4293 |
+| threshold | 10 png | **absent**, `11_binary_raw.png` in their place | **2.7 s** | 0.4234 |
+
+Stage counts on `458.png`: `P > 0.5` gives 51 630 px either way; the level set settles to
+47 844 and the threshold to 54 116 before morphology, ending at 47 641 vs 48 549 against a
+51 180 px ground truth. **6.3× faster** for −0.006 IoU on this image, in line with §2.
+
 ## What this means
 
 On 41 DRAC22 images the GVF + DRLSE block is **not measurably earning its place**: the
@@ -142,21 +184,21 @@ That is a case for deletion, but it is **not yet the whole case**:
 
 - One domain, 41 images. The combined 68-image run is what the project actually reports on.
 - A non-significant delta is not a zero delta. The CI's lower bound is −0.022.
-- The comparison is fixed at the pre-registered `tau = 0.5`. The sensitivity curve is
-  still outstanding.
+- The τ curve (§3) removes one worry — the result is not an artefact of the chosen
+  threshold — but it does not add images.
+
+What the level set *does* still buy is visible in §2's per-image movers: `217.png`
+regressed −0.227, a single-seed image, which is where growing off a small initialization
+should matter most. A deletion is a decision about the mean, not about that image.
 
 ## Still outstanding
 
-1. **`tau` sensitivity curve** — `run_ablate("unclustered_boundary", "tau")`. Deferred
-   only to keep the GPU clear; it needs no GPU and takes minutes. Report as a curve, never
-   as its maximum.
-2. **The combined domain** — `run_cv("DRACTUH_unclustered")` is running (~18 h). It is the
-   first combined-domain number, which UNCLUSTERED.md records as owed regardless of this
-   work, and it writes its own `probcache`, so the same eight cells can then be scored on
-   68 images in minutes.
-3. **`run_steps` threshold-mode dumps** — skip `06_force`–`11_levelset_raw`, emit
-   `11_binary_raw.png`, keep `12`/`13` numbering stable.
-4. **Deletion** — only after 1–3.
+1. **The combined domain** — `run_cv("DRACTUH_unclustered")` is running. It is the first
+   combined-domain number, which UNCLUSTERED.md records as owed regardless of this work,
+   and it writes its own `probcache`, so the same eight cells and the τ curve can then be
+   reproduced on 68 images in minutes:
+   `run_ablate("DRACTUH_unclustered")` and `run_ablate("DRACTUH_unclustered", "tau")`.
+2. **Deletion** — only after 1, and only as its own change.
 
 ## Deviations from REDUCE.md
 
@@ -184,7 +226,15 @@ cfg = cnngvf.defaults(); cfg.CV.skipTrain = true;
 run_cv("unclustered_boundary", cfg)               % ~6 min, borrows the fold networks
 run_ablate("unclustered_boundary")                % ~4 min, all 8 cells
 run_ablate("unclustered_boundary", "tau")         % the sensitivity curve
+
+run_steps("458.png", cfg)                         % stage dump, level-set mode
+tc = cfg; tc.Post.mode = "threshold";
+run_steps("458.png", tc)                          % ... and threshold mode
 ```
+
+`cfg.CV.skipTrain` also resumes an interrupted run: it reuses every fold network already
+trained and trains only the missing ones. The combined-domain run was stopped during fold
+4 and restarted this way, costing 2 folds rather than 5.
 
 Every score here is tied to the localization CSVs in place on 2026-09-03; their mtimes are
 recorded in each cached `P`'s metadata.
