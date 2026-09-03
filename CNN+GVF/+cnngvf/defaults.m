@@ -357,6 +357,22 @@ cfg.Post.tau = 0.5;
 % so the disk survives into the output at its literal 15 px radius.
 cfg.Post.diskFallback = true;
 
+% HOW that fallback is built - see cnngvf.seedFallback.
+%
+%  "disk"   a disk of Drlse.seedRadius. The original and the default.
+%  "relax"  lower the threshold locally around the seed until P itself says
+%           something is there, and take that component.
+%
+% This matters more than its size suggests. On the 68-image domain 258 of 874
+% seeds (29.5%, across 34 of 68 images) never produce P > tau, so for nearly a
+% third of the seeds the fallback IS the output - and a 15 px disk is ~707 px
+% against ground-truth lesions of 1 106 - 432 533 px.
+cfg.Post.fallbackMode = "disk";
+
+% "relax" bounds, because a lowered threshold on a broad plateau floods.
+cfg.Post.relaxWindow = 128;    % px searched either side of the seed
+cfg.Post.relaxFloor  = 0.10;   % the permissive threshold applied in that window
+
 % imclose(disk 2) before the fill. Justified for the level set as bridging the
 % 1-2 px gaps it leaves along ragged frond boundaries; whether a thresholded map
 % needs the same bridging is the second switch the ablation measures.

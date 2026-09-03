@@ -166,6 +166,34 @@ disk   = cnngvf.maskFromProb(P, lonely, on);
 assert(~noDisk(30, 230) && disk(30, 230), ...
     'the disk fallback did not plant a disk at a seed the threshold missed');
 
+% "relax" must find the SHAPE the CNN saw weakly, not a circle. A soft blob
+% peaking below tau is invisible to the threshold and to a disk, but relaxing
+% the threshold locally recovers its actual outline.
+soft = zeros(size(P));
+[xx2, yy2] = meshgrid(1:size(P, 2), 1:size(P, 1));
+soft = max(soft, 0.42 * exp(-((xx2 - 60).^2 + (yy2 - 200).^2) / (2 * 22^2)));
+Psoft  = max(P, soft);
+weak   = [seeds; 60 200];
+
+rc = cfg; rc.Post.diskFallback = true; rc.Post.fallbackMode = "relax";
+dc = cfg; dc.Post.diskFallback = true; dc.Post.fallbackMode = "disk";
+relaxed = cnngvf.maskFromProb(Psoft, weak, rc);
+disked  = cnngvf.maskFromProb(Psoft, weak, dc);
+
+assert(relaxed(200, 60) && disked(200, 60), ...
+    'both fallbacks should cover a seed the threshold missed');
+assert(nnz(relaxed) > nnz(disked), ...
+    ['relax recovered %d px against the disk''s %d - it should find more of a ' ...
+     'blob that peaks below tau'], nnz(relaxed), nnz(disked));
+
+% It must stay local: relaxing must not flood the far side of the image.
+assert(~relaxed(30, 230), 'relax leaked to an unrelated background location');
+
+% A seed with genuinely nothing near it keeps the recall floor - relax degrades
+% to the disk rather than returning nothing.
+bare = cnngvf.maskFromProb(P, [seeds; 230 30], rc);
+assert(bare(30, 230), 'relax dropped a seed instead of falling back to the disk');
+
 % Post.tau must reach the output, or a tau sweep would measure nothing.
 c = cfg; c.Post.tau = 0.95;
 assert(nnz(cnngvf.maskFromProb(P, seeds, c)) < nnz(mask), ...

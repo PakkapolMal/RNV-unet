@@ -4,6 +4,7 @@ function [cells, perImage] = run_ablate(arm, mode)
 %  run_ablate                              % "unclustered_boundary", 2^3 cells
 %  run_ablate("DRACTUH_unclustered")
 %  run_ablate(arm, "tau")                  % the tau sensitivity curve instead
+%  run_ablate(arm, "fallback")             % what a missed seed should produce
 %  [cells, perImage] = run_ablate(...)
 %
 %  Reads <Output>/cv/probcache/, written by run_cv. Every cell sees byte-
@@ -86,9 +87,11 @@ switch string(mode)
         [cells, perImage] = runFactorial(cfg, M, images, names, seedRows, cacheDir, outDir);
     case "tau"
         [cells, perImage] = tauCurve(cfg, M, images, names, seedRows, cacheDir, outDir);
+    case "fallback"
+        [cells, perImage] = fallbackSweep(cfg, M, images, names, seedRows, cacheDir, outDir);
     otherwise
         error('cnngvf:runAblate:badMode', ...
-            'Unknown mode "%s". Use "factorial" or "tau".', mode);
+            'Unknown mode "%s". Use "factorial", "tau" or "fallback".', mode);
 end
 end
 
@@ -200,7 +203,7 @@ function BW = thresholdRaw(P, seeds, cfg)
 % maskFromProb calls, so there is no second copy of the geometry to drift.
 BW = P > cfg.Post.tau;
 if cfg.Post.diskFallback
-    BW = BW | cnngvf.seedDisks(size(P), seeds, BW, cfg);
+    BW = BW | cnngvf.seedFallback(P, seeds, BW, cfg);
 end
 end
 
@@ -277,6 +280,124 @@ fprintf('\nmean IoU at the pre-registered tau = 0.5: %.4f\n', ...
 fprintf('spread over tau 0.40-0.65               : %.4f\n', flat);
 fprintf('oracle per-image tau (not quotable)     : %.4f\n', mean(oracle));
 fprintf('Records: %s\n', fullfile(outDir, 'tau_curve.csv'));
+end
+
+
+% =========================================================================
+% THE FALLBACK SWEEP
+% =========================================================================
+
+function [T, perImage] = fallbackSweep(cfg, M, images, names, seedRows, cacheDir, outDir)
+%FALLBACKSWEEP What to do for the 29.5% of seeds that never reach P > tau.
+%
+% Threshold mode throughout, so the fallback is the output rather than a
+% level-set initialization. Post.tau stays at its pre-registered value; the only
+% thing varying is what a missed seed produces.
+cfg.Post.mode = "threshold";
+
+% Radii, then the relaxation variants. seedRadius is now a decision variable in
+% exactly the way tau is - it sets the output directly - so this is a CURVE, and
+% quoting its maximum is the same leakage.
+variants = {};
+for r = [5 10 15 20 30 40 60]
+    variants{end+1} = struct('label', sprintf("disk r=%d", r), ...
+        'mode', "disk", 'radius', r, 'window', 0, 'floor', 0); %#ok<AGROW>
+end
+for fl = [0.05 0.10 0.20 0.30]
+    variants{end+1} = struct('label', sprintf("relax floor=%.2f", fl), ...
+        'mode', "relax", 'radius', cfg.Drlse.seedRadius, ...
+        'window', cfg.Post.relaxWindow, 'floor', fl); %#ok<AGROW>
+end
+variants{end+1} = struct('label', "none", 'mode', "disk", 'radius', 0, ...
+    'window', 0, 'floor', 0);
+
+nV   = numel(variants);
+nImg = numel(images);
+iou  = nan(nImg, nV);
+f1   = nan(nImg, nV);
+prec = nan(nImg, nV);
+rec  = nan(nImg, nV);
+dset = strings(nImg, 1);
+
+for i = 1:nImg
+    imgName = images(i);
+    k       = find(M.Name == imgName, 1);
+    seeds   = seedRows(names == imgName, :);
+    got     = cnngvf.probCache("read", cacheDir, imgName, cfg);
+    P       = double(got.P);
+    gt      = rnv.loadMask(M.GtPath(k));
+    dset(i) = M.Dataset(k);
+
+    for j = 1:nV
+        v = variants{j};
+        c = cfg;
+        c.Post.fallbackMode   = v.mode;
+        c.Drlse.seedRadius    = v.radius;
+        c.Post.relaxFloor     = v.floor;
+        c.Post.diskFallback   = v.radius > 0 || v.mode == "relax";
+        if v.label == "none"
+            c.Post.diskFallback = false;
+        end
+
+        m = rnv.metrics(cnngvf.maskFromProb(P, seeds, c), gt);
+        iou(i, j) = m.iou; f1(i, j) = m.f1;
+        prec(i, j) = m.precision; rec(i, j) = m.recall;
+    end
+    fprintf('  [%2d/%2d] %-12s\n', i, nImg, imgName);
+end
+
+% Reference is the current default, disk r = 15.
+ref = find(cellfun(@(v) v.label == "disk r=15", variants), 1);
+
+rows = cell(nV, 1);
+for j = 1:nV
+    d = iou(:, j) - iou(:, ref);
+    [p, up, dn] = signTest(d);
+    ci = bootstrapCI(d);
+    rows{j} = {variants{j}.label, mean(iou(:, j)), median(iou(:, j)), ...
+        mean(f1(:, j)), mean(prec(:, j)), mean(rec(:, j)), ...
+        mean(d), up, dn, p, ci(1), ci(2)};
+end
+T = cell2table(vertcat(rows{:}), 'VariableNames', ...
+    {'Variant', 'MeanIou', 'MedianIou', 'MeanF1', 'MeanPrecision', ...
+     'MeanRecall', 'DeltaIou', 'Better', 'Worse', 'SignP', 'CiLo', 'CiHi'});
+T.Variant = string(T.Variant);
+
+perImage = table(images, dset, 'VariableNames', {'Image', 'Dataset'});
+for j = 1:nV
+    perImage.(matlab.lang.makeValidName(variants{j}.label)) = iou(:, j);
+end
+
+writetable(T,        fullfile(outDir, 'fallback.csv'));
+writetable(perImage, fullfile(outDir, 'fallback_per_image.csv'));
+
+fid = fopen(fullfile(outDir, 'fallback_summary.txt'), 'w');
+cleanup = onCleanup(@() fclose(fid));
+fprintf(fid, 'Seed fallback sweep - %s, %d images, threshold mode, tau %g\n', ...
+    cfg.Arm, nImg, cfg.Post.tau);
+fprintf(fid, '=========================================================\n\n');
+fprintf(fid, 'REPORT AS A CURVE. seedRadius now sets the output directly, so it is a\n');
+fprintf(fid, 'decision variable like tau: quoting the sweep maximum is leakage.\n');
+fprintf(fid, 'Reference is the current default, disk r = 15.\n\n');
+fprintf(fid, '  %-18s    IoU  median      F1    prec     rec |    dIoU  +/-    signP    95%% CI\n', 'variant');
+for j = 1:nV
+    fprintf(fid, '  %-18s %.4f  %.4f  %.4f  %.4f  %.4f | %+.4f %2d/%-2d  %.4f  [%+.4f,%+.4f]\n', ...
+        T.Variant(j), T.MeanIou(j), T.MedianIou(j), T.MeanF1(j), ...
+        T.MeanPrecision(j), T.MeanRecall(j), T.DeltaIou(j), ...
+        T.Better(j), T.Worse(j), T.SignP(j), T.CiLo(j), T.CiHi(j));
+end
+if numel(unique(dset)) > 1
+    fprintf(fid, '\nPer dataset, mean IoU\n');
+    for d = unique(dset)'
+        fprintf(fid, '  %-8s n=%-3d', d, nnz(dset == d));
+        for j = 1:nV, fprintf(fid, '  %.4f', mean(iou(dset == d, j))); end
+        fprintf(fid, '\n');
+    end
+end
+
+fprintf('\n%s\n', repmat('=', 1, 78));
+disp(T);
+fprintf('Records: %s\n', fullfile(outDir, 'fallback.csv'));
 end
 
 

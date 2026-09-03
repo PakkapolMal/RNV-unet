@@ -25,7 +25,7 @@ BW0 = imopen(BW0, strel('disk', 1));
 [~, BW0] = cnngvf.seedMasks(BW0, seeds, 0, cfg.Post.ClaimRule);
 
 if cfg.Post.diskFallback
-    BW0 = BW0 | cnngvf.seedDisks(size(P), seeds, BW0, cfg);
+    BW0 = BW0 | cnngvf.seedFallback(P, seeds, BW0, cfg);
 end
 
 phi0 = cfg.Drlse.c0 * (1 - 2 * double(BW0));

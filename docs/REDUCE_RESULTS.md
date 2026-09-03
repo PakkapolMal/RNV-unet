@@ -316,6 +316,93 @@ the fixed threshold it is once more far larger than anything in the factorial. B
 now say the same thing: the remaining headroom is in how well-calibrated `P` is image to
 image, not in the contour method.
 
+## 8. The seed fallback — the largest effect measured on this pipeline
+
+§6 found the disk fallback worth −0.016 at *p* = 1.3e−7, an order of magnitude more than
+the level set. That prompted the obvious question nobody had asked: **how often does it
+fire, and is a 15 px disk the right answer?**
+
+**258 of 874 seeds — 29.5 %, across 34 of the 68 images — never produce `P > tau` at all.**
+For every one of them the fallback *is* the output. A disk at `seedRadius = 15` is ~707 px,
+barely over `minArea = 500`, against ground-truth lesions of 1 106–432 533 px. And that
+radius was never measured: it was chosen when the disk was a level-set *initialization*
+that the evolution would grow. In the reduced pipeline nothing grows.
+
+`run_ablate("DRACTUH_unclustered", "fallback")`, 68 images, threshold mode, `tau` fixed at
+0.5. Reference is the current default, disk r = 15.
+
+| variant | IoU | median | F1 | prec | recall | ΔIoU | ± | sign *p* | 95 % CI |
+|---|---|---|---|---|---|---|---|---|---|
+| none | 0.4519 | 0.4641 | 0.5942 | 0.6733 | 0.6408 | −0.0172 | 4/28 | 1e−6 | [−0.025, −0.010] |
+| disk r=5 | 0.4546 | 0.4726 | 0.5971 | 0.6737 | 0.6445 | −0.0145 | 4/28 | 1e−6 | [−0.022, −0.008] |
+| disk r=10 | 0.4591 | 0.4726 | 0.6020 | 0.6738 | 0.6506 | −0.0100 | 4/28 | 1e−6 | [−0.015, −0.006] |
+| **disk r=15** *(default)* | 0.4691 | 0.4727 | 0.6131 | 0.6686 | 0.6653 | — | — | — | — |
+| disk r=20 | 0.4750 | 0.4812 | 0.6194 | 0.6593 | 0.6779 | +0.0059 | 24/10 | 0.024 | [+0.002, +0.011] |
+| disk r=30 | 0.4809 | 0.4916 | 0.6250 | 0.6348 | 0.7029 | +0.0118 | 21/13 | 0.230 | [−0.002, +0.027] |
+| disk r=40 | 0.4826 | 0.4869 | 0.6253 | 0.6098 | 0.7294 | +0.0135 | 17/17 | 1.000 | [−0.009, +0.036] |
+| disk r=60 | 0.4683 | 0.4812 | 0.6090 | 0.5626 | 0.7687 | −0.0008 | 16/18 | 0.864 | [−0.030, +0.029] |
+| relax floor=0.05 | 0.4863 | 0.5047 | 0.6232 | 0.5597 | **0.8172** | +0.0172 | 18/15 | 0.728 | [−0.021, +0.058] |
+| **relax floor=0.10** | **0.5101** | 0.5276 | 0.6454 | 0.5951 | 0.8006 | **+0.0410** | 19/14 | 0.487 | [+0.004, +0.080] |
+| **relax floor=0.20** | 0.5097 | **0.5299** | **0.6489** | 0.6311 | 0.7579 | **+0.0406** | 22/11 | 0.080 | [+0.014, +0.069] |
+| relax floor=0.30 | 0.4909 | 0.4956 | 0.6339 | 0.6521 | 0.7094 | +0.0218 | 22/9 | 0.029 | [+0.008, +0.037] |
+
+### +0.041 IoU — twenty-four times the level-set effect
+
+The relaxation fallback at floor 0.10–0.20 is worth **+0.041 IoU / +0.035 F1** over the
+current default. For scale, every other effect measured in this document:
+
+| | ΔIoU |
+|---|---|
+| **seed fallback: disk r=15 → relax 0.20** | **+0.041** |
+| disk fallback vs none | +0.017 |
+| claiming rule, centroid → boundary | +0.003 |
+| removing the level set | −0.002 |
+| `imclose`, in threshold mode | +0.004 |
+
+It is also **not a level-set question at all** — it applies to both modes, and the reduced
+pipeline is simply where it became visible, because there the fallback is the output rather
+than a starting guess.
+
+### Two independent reasons to trust the direction
+
+**A broad plateau, not a spike.** Floors 0.10 and 0.20 give 0.5101 and 0.5097 — nearly
+identical — with 0.05 and 0.30 falling to 0.486 and 0.491 on either side. A single lucky
+value would not behave like that.
+
+**Both devices agree.** DRAC22 0.4577 → 0.4792 (+0.022, best at floor 0.20); TUH 0.4864 →
+0.5634 (+0.077, best at floor 0.10). The gain is much larger on TUH, but it is present and
+positive on both.
+
+### What it actually does, and the honest caveat
+
+It is a **recall** intervention: recall 0.665 → 0.758 at floor 0.20, precision 0.669 →
+0.631. Recall is the weaker side on this arm, so unlike the level set this pays into the
+right account. The disk-radius rows say the same thing more crudely — r = 15 is simply too
+small, and r = 30–40 already buys +0.012 — but relaxation beats every disk because it
+recovers the lesion's *shape* rather than a circle.
+
+**The sign tests do not confirm the mean.** Floor 0.10 is 19 better / 14 worse, *p* = 0.49,
+despite a +0.041 mean and a CI excluding zero. Only 33 images change at all (the 34 where
+the fallback fires), and the distribution is heavy-tailed — large wins, small losses. So
+this is a real mean improvement, **not** a uniform one. Floor 0.20 is the better-behaved
+choice on that axis: 22/11, *p* = 0.08, the tightest CI, the best F1, and better precision.
+
+**`relaxFloor` is a decision variable swept on the images it is scored on.** The value is
+therefore subject to the same leakage caution as `tau`: report the curve, not its maximum.
+The plateau is the defence, but a confirmatory run at a pre-registered floor is owed before
+the exact figure is quoted. **Pre-register 0.20.**
+
+### It captures half the oracle-`tau` gap
+
+§7 put the oracle per-image `tau` at 0.5468, **+0.078** over the fixed threshold, and called
+it the largest headroom in the project. The relaxation fallback is a *legitimate* per-seed
+adaptive threshold — it reads only `P`, never ground truth — and it recovers **+0.041, some
+53 % of that gap**, at inference, with no retraining.
+
+That is direct evidence for §7's diagnosis: the problem is that one global `tau` is wrong
+for images `P` is miscalibrated on, and letting the threshold move locally recovers much of
+what a per-image oracle would.
+
 ## What this means
 
 **The GVF + DRLSE block does not earn its place.** Both domains agree, and the larger one
@@ -358,9 +445,25 @@ with UNCLUSTERED.md's standing conclusion that **the probability map is the bott
 and post-processing is exhausted. Effort belongs in `P`: calibration, more data, longer
 training — not in the contour method.
 
+### The finding that outranks the one we set out to make
+
+REDUCE.md asked whether the level set earns its place. The answer is no — but the more
+useful result is §8: **the stage nobody was looking at is worth twenty-four times the stage
+under investigation.** The seed fallback fires for 29.5 % of seeds, its parameter had never
+been measured, and replacing a blind 15 px disk with a locally relaxed threshold is worth
++0.041 IoU — while the level set, eight tuned parameters and a mex dependency, is worth
+−0.002.
+
+Both belong in the same story: the pipeline's remaining error is concentrated in what
+happens when `P` is weak, not in how a contour is refined once `P` is strong.
+
 ## Still outstanding
 
-1. **The deletion change itself** — its own commit, after this report is read. Remove
+1. **Confirm `relaxFloor = 0.20` as pre-registered**, then make it the default. The floor
+   was chosen on the images it was scored on, so the current +0.041 is a sweep maximum in
+   the sense §7 warns about — the plateau makes the direction safe, the exact figure needs
+   one confirmatory pass.
+2. **The deletion change itself** — its own commit, after this report is read. Remove
    `buildForce`, `gvfField`, `drlse`, the `Force`/`Gvf`/`Drlse` config blocks and the
    `lib/Fast-Gradient-Vector-Flow` dependency; **keep** `cnngvf.seedDisks`,
    `cfg.Drlse.seedRadius` (rename it), `seedMasks` and the morphology. The frozen arms must

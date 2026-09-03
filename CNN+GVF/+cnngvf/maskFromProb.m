@@ -42,7 +42,7 @@ BW = P > cfg.Post.tau;
 % survives into the output at its literal radius. That is why it is a factor in
 % the ablation rather than a settled default.
 if cfg.Post.diskFallback
-    BW = BW | cnngvf.seedDisks(size(P), seeds, BW, cfg);
+    BW = BW | cnngvf.seedFallback(P, seeds, BW, cfg);
 end
 
 if cfg.Post.imclose

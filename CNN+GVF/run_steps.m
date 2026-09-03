@@ -193,7 +193,7 @@ switch cfg.Post.mode
         % pipeline's answer to what the level set used to produce.
         BW = P > cfg.Post.tau;
         if cfg.Post.diskFallback
-            BW = BW | cnngvf.seedDisks(size(P), seeds, BW, cfg);
+            BW = BW | cnngvf.seedFallback(P, seeds, BW, cfg);
         end
         save1(outDir, '11_binary_raw.png', BW);
 
