@@ -65,7 +65,7 @@ end
 [~, stem] = fileparts(imgName);
 path = fullfile(cacheDir, char(stem + ".mat"));
 
-P = single(P);   %#ok<NASGU>  saved below
+P = single(P);
 meta.image = string(imgName);
 meta.saved = datetime('now', 'Format', 'yyyy-MM-dd HH:mm:ss');
 

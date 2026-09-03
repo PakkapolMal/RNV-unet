@@ -52,7 +52,9 @@ switch cfg.Post.mode
         phi0    = cnngvf.initPhi(P, seeds, cfg);
         BW      = cnngvf.drlse(P, phi0, u, v, cfg);
 
-        BW = imclose(BW, cfg.Post.MorphElement);
+        if cfg.Post.imclose
+            BW = imclose(BW, cfg.Post.MorphElement);
+        end
         BW = imfill(BW, 'holes');  % RNV-DRAC22GT/FilledGT has its lesions filled
 
         [perSeed, mask] = cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule);

@@ -304,7 +304,7 @@ T.Mode = string(T.Mode);
 end
 
 
-function report(txtPath, cfg, spec, cells, iou, f1, fold, dset, images)
+function report(txtPath, cfg, ~, cells, iou, f1, fold, dset, images)
 fid = fopen(txtPath, 'w');
 if fid < 0
     warning('cnngvf:runAblate:noSummary', 'Could not write %s', txtPath);

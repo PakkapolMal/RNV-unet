@@ -18,12 +18,13 @@ function out = run_steps(imageName, arm)
 %    03_vesselness.png     Frangi response, only when the arm enables it
 %    04_seed_heatmap.png   Gaussian seed map    (the last CNN channel)
 %    05_prob.png           P, the CNN probability map
-%    06_force.png          f = |grad P|, the GVF energy field
-%    07_gvf_magnitude.png  |(u,v)| of the diffused field
-%    08_gvf_quiver.png     the field itself, over the image
-%    09_edge_stopper.png   g, where the level set is slowed
-%    10_phi0_init.png      the initialisation, P > tau
-%    11_levelset_raw.png   phi < 0 straight out of DRLSE
+%    06_force.png          f = |grad P|, the GVF energy field      \
+%    07_gvf_magnitude.png  |(u,v)| of the diffused field            | cfg.Post.mode
+%    08_gvf_quiver.png     the field itself, over the image         | "levelset"
+%    09_edge_stopper.png   g, where the level set is slowed         | only
+%    10_phi0_init.png      the initialisation, P > tau              |
+%    11_levelset_raw.png   phi < 0 straight out of DRLSE           /
+%    11_binary_raw.png     P > tau, before morphology  -- "threshold" mode only
 %    12_after_morph.png    after imclose + imfill
 %    13_final_mask.png     after seedMasks - the pipeline's answer
 %    14_overlay.png        image + seeds + final contours
@@ -32,6 +33,11 @@ function out = run_steps(imageName, arm)
 %    patches/seed_NN.png   the 3-channel network input for each seed
 %    steps.mat             every array above, for further analysis
 %    steps.txt             per-stage pixel counts and, with GT, the metrics
+%
+%  Stages 6-11 are SKIPPED in "threshold" mode rather than written as blanks: a
+%  blank 07_gvf_magnitude.png would read as "the field was zero", which is a
+%  different and much more alarming claim than "there is no field". 12 and 13
+%  keep their numbers in both modes, so the two dumps line up side by side.
 %
 %  Scalar fields are written normalised to their own range, so a dark
 %  vesselness image means low absolute response, not an error.
@@ -130,33 +136,62 @@ end
 P = cnngvf.inferProbMap(chans, seeds, net, cfg);
 save1(outDir, '05_prob.png', P);
 
-% 6. GVF energy field ------------------------------------------------------
-f = cnngvf.buildForce(P, img.I, cfg);
-save1(outDir, '06_force.png', f);
+% 6-11. P -> a raw binary -------------------------------------------------
+% The two modes diverge here and nowhere else. In threshold mode stages 6-11
+% do not exist, so they are SKIPPED rather than written as blanks - a blank
+% 07_gvf_magnitude.png would read as "the field was zero", which is a different
+% and much more alarming claim than "there is no field".
+%
+% 12 and 13 keep their numbers in both modes, so the two dumps line up side by
+% side in a file browser.
+f = []; u = []; v = []; g = []; phi0 = []; phi = []; BW0 = [];
 
-% 7-8. GVF field -----------------------------------------------------------
-[u, v] = cnngvf.gvfField(f, cfg);
-save1(outDir, '07_gvf_magnitude.png', hypot(u, v));
-saveQuiver(fullfile(outDir, '08_gvf_quiver.png'), img.I, u, v);
+switch cfg.Post.mode
+    case "levelset"
+        % 6. GVF energy field
+        f = cnngvf.buildForce(P, img.I, cfg);
+        save1(outDir, '06_force.png', f);
 
-% 9. edge stopper ----------------------------------------------------------
-% Mirrors the g that cnngvf.drlse builds internally; drlse does not return it.
-% Keep in step with that file if the formula there changes.
-[gx, gy] = gradient(imgaussfilt(double(P), 1));
-gm = sqrt(gx.^2 + gy.^2);
-g  = 1 ./ (1 + (cfg.Drlse.edgeGain * gm ./ max(max(gm(:)), eps)).^2);
-save1(outDir, '09_edge_stopper.png', g);
+        % 7-8. GVF field
+        [u, v] = cnngvf.gvfField(f, cfg);
+        save1(outDir, '07_gvf_magnitude.png', hypot(u, v));
+        saveQuiver(fullfile(outDir, '08_gvf_quiver.png'), img.I, u, v);
 
-% 10. initialisation -------------------------------------------------------
-[phi0, BW0] = cnngvf.initPhi(P, seeds, cfg);
-save1(outDir, '10_phi0_init.png', BW0);
+        % 9. edge stopper. Mirrors the g that cnngvf.drlse builds internally;
+        % drlse does not return it. Keep in step if the formula there changes.
+        [gx, gy] = gradient(imgaussfilt(double(P), 1));
+        gm = sqrt(gx.^2 + gy.^2);
+        g  = 1 ./ (1 + (cfg.Drlse.edgeGain * gm ./ max(max(gm(:)), eps)).^2);
+        save1(outDir, '09_edge_stopper.png', g);
 
-% 11. level set ------------------------------------------------------------
-[BW, phi] = cnngvf.drlse(P, phi0, u, v, cfg);
-save1(outDir, '11_levelset_raw.png', BW);
+        % 10. initialisation
+        [phi0, BW0] = cnngvf.initPhi(P, seeds, cfg);
+        save1(outDir, '10_phi0_init.png', BW0);
+
+        % 11. level set
+        [BW, phi] = cnngvf.drlse(P, phi0, u, v, cfg);
+        save1(outDir, '11_levelset_raw.png', BW);
+
+    case "threshold"
+        % 11. the threshold itself, before any morphology - the reduced
+        % pipeline's answer to what the level set used to produce.
+        BW = P > cfg.Post.tau;
+        if cfg.Post.diskFallback
+            BW = BW | cnngvf.seedDisks(size(P), seeds, BW, cfg);
+        end
+        save1(outDir, '11_binary_raw.png', BW);
+
+    otherwise
+        error('cnngvf:runSteps:badPostMode', ...
+            'Unknown Post.mode "%s". Use "levelset" or "threshold".', cfg.Post.mode);
+end
 
 % 12. morphology -----------------------------------------------------------
-BWm = imfill(imclose(BW, cfg.Post.MorphElement), 'holes');
+BWm = BW;
+if cfg.Post.imclose
+    BWm = imclose(BWm, cfg.Post.MorphElement);
+end
+BWm = imfill(BWm, 'holes');
 save1(outDir, '12_after_morph.png', BWm);
 
 % 13. seed-claimed components ---------------------------------------------
@@ -196,10 +231,14 @@ save(fullfile(outDir, 'steps.mat'), '-struct', 'out');
 writeReport(fullfile(outDir, 'steps.txt'), imageName, cfg, seeds, ...
     P, BW0, BW, BWm, mask, gt, m, elapsed);
 
-fprintf('\nstage             pixels\n');
-fprintf('  P > %.2f        %8d\n', cfg.Drlse.tau, nnz(P > cfg.Drlse.tau));
-fprintf('  phi0 init       %8d\n', nnz(BW0));
-fprintf('  level set       %8d\n', nnz(BW));
+fprintf('\nstage             pixels        (mode: %s)\n', cfg.Post.mode);
+fprintf('  P > %.2f        %8d\n', cfg.Post.tau, nnz(P > cfg.Post.tau));
+if cfg.Post.mode == "levelset"
+    fprintf('  phi0 init       %8d\n', nnz(BW0));
+    fprintf('  level set       %8d\n', nnz(BW));
+else
+    fprintf('  binary raw      %8d\n', nnz(BW));
+end
 fprintf('  after morph     %8d\n', nnz(BWm));
 fprintf('  final mask      %8d\n', nnz(mask));
 if ~isempty(gt)
@@ -266,10 +305,15 @@ fprintf(fid, 'Model     : %s\n', cfg.Paths.Model);
 fprintf(fid, 'Seeds     : %d from %s\n', size(seeds, 1), cfg.Paths.Localization);
 fprintf(fid, 'Runtime   : %.1f s\n\n', elapsed);
 
+fprintf(fid, 'Post.mode : %s\n\n', cfg.Post.mode);
 fprintf(fid, 'Stage pixel counts\n------------------\n');
-fprintf(fid, '  P > %-12.2f %8d\n', cfg.Drlse.tau, nnz(P > cfg.Drlse.tau));
-fprintf(fid, '  phi0 init        %8d\n', nnz(BW0));
-fprintf(fid, '  level set        %8d\n', nnz(BW));
+fprintf(fid, '  P > %-12.2f %8d\n', cfg.Post.tau, nnz(P > cfg.Post.tau));
+if cfg.Post.mode == "levelset"
+    fprintf(fid, '  phi0 init        %8d\n', nnz(BW0));
+    fprintf(fid, '  level set        %8d\n', nnz(BW));
+else
+    fprintf(fid, '  binary raw       %8d\n', nnz(BW));
+end
 fprintf(fid, '  after morph      %8d\n', nnz(BWm));
 fprintf(fid, '  final mask       %8d\n', nnz(mask));
 if ~isempty(gt)
@@ -280,7 +324,7 @@ end
 fprintf(fid, '\nProbability map\n---------------\n');
 fprintf(fid, '  max              %.4f\n', max(P(:)));
 fprintf(fid, '  mean             %.6f\n', mean(P(:)));
-fprintf(fid, '  px above tau     %8d\n', nnz(P > cfg.Drlse.tau));
+fprintf(fid, '  px above tau     %8d\n', nnz(P > cfg.Post.tau));
 
 if ~isempty(m)
     fprintf(fid, '\nScores vs FilledGT\n------------------\n');
