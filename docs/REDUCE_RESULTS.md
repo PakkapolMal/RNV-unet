@@ -2,8 +2,8 @@
 title: Reduced Pipeline — Measured Results
 description: The 2^3 post-processing ablation on cached P, and what the GVF + level-set block is actually worth.
 kind: measurement-record
-status: partial — DRAC22 41 images done, combined domain running
-dataset: DRAC22 (41 images)
+status: current — both domains measured
+dataset: DRAC22 + TUH (68) and DRAC22 (41)
 updated: 2026-09-03
 ---
 
@@ -12,9 +12,16 @@ updated: 2026-09-03
 What [REDUCE.md](REDUCE.md) asked for, measured. Vocabulary: [CONTEXT.md](CONTEXT.md).
 Specification: [UNCLUSTERED.md](UNCLUSTERED.md).
 
-> **Domain: 41 DRAC22 images.** Not 17, not 39, not 68. Every number below is
-> cross-validated, every image out-of-sample. They are **not** comparable with the
-> 17-image or 68-image figures in UNCLUSTERED.md, and not with any single-split number.
+> **Two domains, stated on every number.** §0–§4 are **41 DRAC22 images**
+> (`unclustered_boundary`); §5–§7 are the **68-image combined domain**
+> (`DRACTUH_unclustered`). Both are 5-fold cross-validated with every image scored
+> out-of-sample. They answer different questions and **must not be compared with each
+> other**, nor with the 17- or 39-image figures in UNCLUSTERED.md, nor with any
+> single-split number.
+>
+> **The 68-image results in §5–§7 are the ones to report.** The 41-image work came
+> first because its fold networks already existed; it is kept because it is the paired
+> evidence for the claiming-rule fix, and because the two domains agree.
 
 ## Protocol
 
@@ -173,32 +180,194 @@ Stage counts on `458.png`: `P > 0.5` gives 51 630 px either way; the level set s
 47 844 and the threshold to 54 116 before morphology, ending at 47 641 vs 48 549 against a
 51 180 px ground truth. **6.3× faster** for −0.006 IoU on this image, in line with §2.
 
+---
+
+# The combined domain — 68 images
+
+## 5. The first combined-domain number
+
+`run_cv("DRACTUH_unclustered")`. UNCLUSTERED.md records this as owed regardless of the
+reduced-pipeline work: **no cross-validated figure over both datasets had ever existed.**
+
+| 5-fold CV, 68 images, all out-of-sample | mean IoU | median | F1 | precision | recall |
+|---|---|---|---|---|---|
+| **DRACTUH_unclustered** | **0.4708** | 0.5026 | 0.6137 | 0.6981 | 0.6432 |
+
+Folds 0.3623 / 0.5289 / 0.5361 / 0.4496 / 0.4763 — sd ≈ 0.070, comparable to the DRAC22
+run's 0.082, so read fold differences as noise. Runtime 4.3 h.
+
+| breakout | n | IoU | F1 |
+|---|---|---|---|
+| TUH | 27 | 0.4788 | 0.6281 |
+| DRAC22 | 41 | 0.4656 | 0.6041 |
+
+The two devices land within **0.013** of each other. That is worth noting given the folds
+are pooled rather than device-stratified, and given TUH still carries its burned-in
+acquisition overlay — which was the standing suspect for straight-line false positives.
+Nothing here suggests it is costing much.
+
+Integrity: 68 rows, 68 unique, 68 cached `P`, 5 fold networks, exit 0. The only two images
+scoring 0 are `299.png` and `445.png`, exactly the pair UNCLUSTERED.md documents as having
+ground truth but no usable seed — a localization gap charged to the segmenter, as intended.
+
+**This supersedes the `perSeed = 1` single-split 0.3852**, which was diagnosed as an
+underfit. It does **not** compare with the DRAC22-only 0.4603 (41 images ≠ 68), but this
+run's own DRAC22 subset, 0.4656, is a legitimate same-domain check and sits slightly above.
+
+## 6. The factorial on 68 images — the level set all but disappears
+
+| # | mode | disk | close | IoU | median | F1 | prec | recall | ΔIoU | ± | sign *p* | Wilcoxon *p* | 95 % CI |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **1** | levelset | ✓ | ✓ | **0.4708** | 0.5026 | 0.6137 | 0.6981 | 0.6432 | — | — | — | — | — |
+| 2 | levelset | ✓ | ✗ | 0.4708 | 0.5025 | 0.6136 | 0.6982 | 0.6430 | −0.00009 | 18/41 | 0.004 | 0.001 | [−0.00014, −0.00004] |
+| 3 | levelset | ✗ | ✓ | 0.4548 | 0.4876 | 0.5962 | 0.6975 | 0.6223 | −0.0161 | 2/31 | **1.3e−7** | **8.2e−7** | [−0.0225, −0.0103] |
+| 4 | levelset | ✗ | ✗ | 0.4547 | 0.4874 | 0.5961 | 0.6976 | 0.6221 | −0.0161 | 15/45 | 1.3e−4 | 6.9e−7 | [−0.0226, −0.0104] |
+| **5** | **threshold** | ✓ | ✓ | **0.4691** | 0.4727 | 0.6131 | 0.6686 | **0.6653** | **−0.0017** | 29/37 | **0.389** | **0.406** | **[−0.0113, +0.0081]** |
+| 6 | threshold | ✓ | ✗ | 0.4656 | 0.4797 | 0.6102 | 0.6826 | 0.6455 | −0.0052 | 21/45 | 0.004 | 0.019 | [−0.0119, +0.0018] |
+| 7 | threshold | ✗ | ✓ | 0.4519 | 0.4641 | 0.5942 | 0.6733 | 0.6408 | −0.0189 | 17/49 | 1.0e−4 | 1.5e−5 | [−0.0275, −0.0113] |
+| 8 | threshold | ✗ | ✗ | 0.4468 | 0.4695 | 0.5889 | 0.6886 | 0.6193 | −0.0241 | 13/53 | 7.2e−7 | 2.8e−8 | [−0.0319, −0.0170] |
+
+### Removing the level set costs 0.0017 IoU — and the estimate shrank with more data
+
+- **ΔIoU −0.0017**, ΔF1 **−0.0005** (0.6137 → 0.6131)
+- sign *p* = 0.389, Wilcoxon *p* = 0.406 — nowhere near significance
+- 95 % CI **[−0.0113, +0.0081]**, comfortably straddling zero
+- 29 images better, 37 worse — near a coin flip
+
+On 41 images the point estimate was −0.0057; on 68 it is **−0.0017**. More data made the
+effect *smaller*, not clearer. REDUCE.md predicted ≈ −0.014 F1 from the frozen 17-image
+record; measured on the full domain it is **−0.0005 F1**, roughly thirty times smaller.
+
+The precision/recall trade repeats and is sharper here: **precision falls 0.698 → 0.669,
+recall rises 0.643 → 0.665**. The level set buys precision at recall's expense — and
+precision is the side UNCLUSTERED.md documents as already the stronger of the two on this
+arm, so the block is paying into the wrong account.
+
+**On TUH the reduced pipeline is better outright**: cell 5 scores 0.4864 against cell 1's
+0.4788. On DRAC22 it is worse, 0.4577 against 0.4656. Fold 1 also prefers the reduced
+path (0.3736 vs 0.3623). Whatever the level set contributes, it is not uniform across
+devices.
+
+### The disk fallback is the real load-bearing stage
+
+| removing it | ΔIoU | sign *p* |
+|---|---|---|
+| level-set mode (1→3) | **−0.0161** | 1.3e−7 |
+| threshold mode (5→7) | **−0.0172** | 1.0e−4 |
+
+Nine times the level set's effect, with *p*-values seven orders of magnitude smaller, and
+cell 3's **2 better / 31 worse** is the most one-sided split in the table. This confirms
+the 41-image finding on twice the data, and confirms the reinterpretation: the disk is
+worth slightly **more** in threshold mode, where nothing grows — so it is a floor on
+recall, not the initialization device it was documented as.
+
+### `imclose`: significant and negligible, and the interaction is real
+
+Cell 1 → 2 gives *p* = 0.004 on a delta of **−0.00009**. With `P` identical across cells
+the paired variance is near zero, so the sign test resolves an effect four decimal places
+down. **Statistically significant, practically nothing** — a clean illustration that the
+two are different questions, and a caution for reading the rest of this table.
+
+But the factorial earns its keep here:
+
+| `imclose` worth | ΔIoU |
+|---|---|
+| in level-set mode (2→1) | +0.00009 |
+| in threshold mode (6→5) | **+0.0035** |
+
+**~40× more in threshold mode.** This is exactly the interaction REDUCE.md predicted when
+it insisted on all eight cells rather than a sequential ablation: `imclose` was justified
+as bridging gaps *the level set leaves*, and the truth is the opposite — it matters when
+there is **no** level set, because thresholded components are more fragmented. A
+sequential ablation would have measured it in level-set mode, found ≈ 0, and deleted it
+just as it became useful.
+
+### Biggest movers, cell 5 vs cell 1
+
+Worse: `641.png` −0.172, `nv (1).png` −0.080, `429.png` −0.057, `193.png` −0.053.
+Better: `nv (21).png` **+0.123**, `319.png` **+0.123**, `nv (3).png` +0.093,
+`nv (2).png` +0.058.
+
+`nv (21)` is the 432k px lesion at 41 % of the frame — the reduced pipeline more than
+doubles it, 0.1065 → 0.2298. The level set appears to *hurt* on the largest lesions, where
+the contour has furthest to travel.
+
+## 7. `tau` on 68 images — flat where it matters, then a cliff
+
+| tau | mean IoU | | tau | mean IoU |
+|---|---|---|---|---|
+| 0.375 | 0.4734 | | 0.525 | 0.4630 |
+| 0.400 | 0.4730 | | 0.550 | 0.4593 |
+| 0.425 | 0.4721 | | 0.575 | 0.4504 |
+| 0.450 | 0.4698 | | 0.600 | 0.4421 |
+| 0.475 | 0.4724 | | 0.625 | 0.4326 |
+| **0.500** | **0.4691** | | 0.650 | 0.4181 |
+
+Flat across **0.375–0.525** (0.4691–0.4734, a 0.004 band), then falling steadily. The
+quoted spread over 0.40–0.65 is 0.0549, but that is dominated by the decline above 0.55 —
+the plateau containing the pre-registered value is genuinely flat, and `tau = 0.5` sits
+0.0043 below the sweep's best at 0.375.
+
+So the fixed threshold is safe and there is no calibration problem to report. The optimum
+again sits *below* 0.5, consistent with §6's precision/recall shift.
+
+**Oracle per-image `tau`: 0.5468** — not quotable, an upper bound only. At **+0.078** over
+the fixed threshold it is once more far larger than anything in the factorial. Both domains
+now say the same thing: the remaining headroom is in how well-calibrated `P` is image to
+image, not in the contour method.
+
 ## What this means
 
-On 41 DRAC22 images the GVF + DRLSE block is **not measurably earning its place**: the
-point estimate is −0.006 IoU, the confidence interval includes zero, and the median
-improves. Against that it costs five pipeline stages, a compiled mex dependency, ~2.5 s per
-image, and eight tuned parameters.
+**The GVF + DRLSE block does not earn its place.** Both domains agree, and the larger one
+agrees more strongly:
 
-That is a case for deletion, but it is **not yet the whole case**:
+| | ΔIoU | ΔF1 | sign *p* | 95 % CI |
+|---|---|---|---|---|
+| 41 DRAC22 images | −0.0057 | −0.0028 | 0.108 | [−0.022, +0.010] |
+| **68 combined images** | **−0.0017** | **−0.0005** | **0.389** | **[−0.011, +0.008]** |
 
-- One domain, 41 images. The combined 68-image run is what the project actually reports on.
-- A non-significant delta is not a zero delta. The CI's lower bound is −0.022.
-- The τ curve (§3) removes one worry — the result is not an artefact of the chosen
-  threshold — but it does not add images.
+Doubling the domain made the estimate *smaller* and the *p*-value *larger*. Against
+−0.0005 F1 the block costs five pipeline stages, a compiled mex dependency, eight tuned
+parameters, and ~6× the runtime per image (16.9 s → 2.7 s on `458.png`).
 
-What the level set *does* still buy is visible in §2's per-image movers: `217.png`
-regressed −0.227, a single-seed image, which is where growing off a small initialization
-should matter most. A deletion is a decision about the mean, not about that image.
+Three things sharpen the case beyond the headline:
+
+1. **It pays into the wrong account.** Precision 0.698 → 0.669, recall 0.643 → 0.665. The
+   level set buys precision by giving up recall, and recall is the weaker side here.
+2. **It is not uniform.** On TUH the reduced pipeline is *better* (0.4864 vs 0.4788), and
+   it more than doubles `nv (21)`, the largest lesion in the domain. The mean hides a
+   device-dependent split.
+3. **Two stages that survive matter far more than the one being cut.** The disk fallback
+   is worth −0.016 at *p* = 1.3e−7, an order of magnitude more than the level set, and
+   `imclose` becomes ~40× more valuable once the level set is gone.
+
+### What would argue against deleting
+
+- A non-significant delta is not a zero delta; the CI's lower bound is −0.011.
+- `641.png` loses −0.172 and `nv (1).png` −0.080 without it. Deletion is a decision about
+  the mean, and specific images pay for it.
+- Both `phi0` and the seed-claiming logic are entangled with `initPhi`, which also owns the
+  disk fallback — the stage that matters most. **Deleting the level set must not delete the
+  disks with it.** `cnngvf.seedDisks` was extracted for exactly this reason.
+
+### Where the remaining headroom actually is
+
+The oracle per-image `tau` is **+0.078** over the fixed threshold on 68 images — larger
+than every effect in the factorial combined. Both domains point the same way, and it agrees
+with UNCLUSTERED.md's standing conclusion that **the probability map is the bottleneck**
+and post-processing is exhausted. Effort belongs in `P`: calibration, more data, longer
+training — not in the contour method.
 
 ## Still outstanding
 
-1. **The combined domain** — `run_cv("DRACTUH_unclustered")` is running. It is the first
-   combined-domain number, which UNCLUSTERED.md records as owed regardless of this work,
-   and it writes its own `probcache`, so the same eight cells and the τ curve can then be
-   reproduced on 68 images in minutes:
-   `run_ablate("DRACTUH_unclustered")` and `run_ablate("DRACTUH_unclustered", "tau")`.
-2. **Deletion** — only after 1, and only as its own change.
+1. **The deletion change itself** — its own commit, after this report is read. Remove
+   `buildForce`, `gvfField`, `drlse`, the `Force`/`Gvf`/`Drlse` config blocks and the
+   `lib/Fast-Gradient-Vector-Flow` dependency; **keep** `cnngvf.seedDisks`,
+   `cfg.Drlse.seedRadius` (rename it), `seedMasks` and the morphology. The frozen arms must
+   keep working, so `Post.mode = "levelset"` may need to survive as a compatibility path
+   rather than being removed outright.
+2. **Update UNCLUSTERED.md** — it still says "No combined-domain number exists yet" and
+   lists the centroid claiming rule as an open bug. Both are now resolved.
 
 ## Deviations from REDUCE.md
 
@@ -232,9 +401,21 @@ tc = cfg; tc.Post.mode = "threshold";
 run_steps("458.png", tc)                          % ... and threshold mode
 ```
 
+For the 68-image domain, substitute `"DRACTUH_unclustered"` throughout (its `run_cv` is the
+full ~15 h; the rest is unchanged).
+
 `cfg.CV.skipTrain` also resumes an interrupted run: it reuses every fold network already
-trained and trains only the missing ones. The combined-domain run was stopped during fold
-4 and restarted this way, costing 2 folds rather than 5.
+trained and trains only the missing ones. The combined-domain run was interrupted twice and
+restarted this way, and every reused fold reproduced its earlier mean **exactly**
+(0.3623 / 0.5289 / 0.5361 / 0.4496 across three separate runs) — so a resumed run is not a
+different experiment.
+
+**Launch long runs as `matlab -logfile <path> -batch "..."`, never with shell redirection.**
+With redirection the log handle belongs to the wrapper shell; when that dies the detached
+MATLAB keeps running blind and is killed at its next write — which cost one fold's scoring
+here, four hours after the log had frozen. When a run's progress is in doubt, trust the
+filesystem (`models/cv/*_fold*.mat`, per-fold `per_image.csv`, `probcache` count), not the
+log.
 
 Every score here is tied to the localization CSVs in place on 2026-09-03; their mtimes are
 recorded in each cached `P`'s metadata.
