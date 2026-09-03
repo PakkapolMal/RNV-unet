@@ -46,6 +46,16 @@ function [perImage, summary] = run_cv(arm, cfg)
 %  and buy nothing. cfg.CV.ModelArm says whose networks to borrow; training
 %  never writes to that path.
 %
+%  It is also how an interrupted run RESUMES. On an arm's own networks,
+%  skipTrain reuses every fold already trained and trains only the missing ones,
+%  so a 5-fold run killed during fold 4 costs 2 folds to finish rather than 5:
+%
+%     cfg = cnngvf.defaults(); cfg.CV.skipTrain = true;
+%     run_cv("DRACTUH_unclustered", cfg)
+%
+%  Folds already scored are re-scored from their kept networks, which is cheap
+%  and keeps every fold's output consistent with the code that aggregated it.
+%
 %  Folds are pooled across datasets and stratified by lesion area. per_image.csv
 %  carries a Dataset column and the summary prints a per-dataset breakout, so a
 %  pooled run can be inspected per device without being re-run.
@@ -119,19 +129,22 @@ for f = 1:k
     fc = cfg;
     fc.Split.Exclude = test;    % never seen by training or checkpoint selection
     fc.Split.Val     = inner;
-    if cfg.CV.skipTrain
-        % Borrowed networks are read, never written: the path uses ModelArm
-        % only on this side of the branch, so training can never overwrite the
-        % networks of the arm it is borrowing from.
-        fc.Paths.Model = fullfile(modelDir, sprintf('%s_fold%d.mat', ...
-            cfg.CV.ModelArm, f));
-        if ~isfile(fc.Paths.Model)
-            error('cnngvf:runCv:noFoldModel', ...
-                ['cfg.CV.skipTrain is set but there is no network at %s.\n' ...
-                 'Either run this arm without skipTrain, or point cfg.CV.ModelArm ' ...
-                 'at an arm whose fold networks exist.'], fc.Paths.Model);
-        end
-        fprintf('  reusing %s (skipTrain)\n', fc.Paths.Model);
+    % Borrowing another arm's networks is read-only; training an arm's own is
+    % not. Splitting on that is what makes skipTrain safe to RESUME with: a
+    % 5-fold run that died in fold 4 keeps folds 1-3 and trains only what is
+    % missing, instead of burning another 9 h reproducing them.
+    borrowed       = cfg.CV.ModelArm ~= arm;
+    fc.Paths.Model = fullfile(modelDir, sprintf('%s_fold%d.mat', cfg.CV.ModelArm, f));
+
+    if cfg.CV.skipTrain && isfile(fc.Paths.Model)
+        fprintf('  reusing %s\n', fc.Paths.Model);
+    elseif borrowed
+        % Never train into the path of an arm we are only borrowing from.
+        error('cnngvf:runCv:noFoldModel', ...
+            ['cfg.CV.ModelArm is "%s" but there is no network at %s.\n' ...
+             'Training would overwrite that arm''s fold networks, so it is ' ...
+             'refused. Run the borrowed arm''s own cross-validation first.'], ...
+            cfg.CV.ModelArm, fc.Paths.Model);
     else
         fc.Paths.Model = fullfile(modelDir, sprintf('%s_fold%d.mat', arm, f));
         cnngvf.trainNet(fc);
