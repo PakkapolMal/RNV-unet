@@ -4,7 +4,7 @@ description: The 2^3 post-processing ablation on cached P, and what the GVF + le
 kind: measurement-record
 status: current — both domains measured
 dataset: DRAC22 + TUH (68) and DRAC22 (41)
-updated: 2026-09-03
+updated: 2026-09-16
 ---
 
 # Reduced Pipeline — Measured Results
@@ -403,6 +403,37 @@ That is direct evidence for §7's diagnosis: the problem is that one global `tau
 for images `P` is miscalibrated on, and letting the threshold move locally recovers much of
 what a per-image oracle would.
 
+## 9. Confirming `relaxFloor = 0.20` — the selection costs 0.004
+
+§8 left the floor as a sweep maximum. The 68 images cannot be replaced, so re-scoring 0.20
+alone would only reproduce 0.5097 bit for bit — which it does, through the production
+`maskFromProb` path rather than `run_ablate`'s, and that is all it shows. What can be tested
+is whether *choosing* the floor on the scored images inflated the number.
+`run_confirm_relax`, off cached `P`, 68 s:
+
+| check | how the floor is chosen | IoU | ΔIoU vs disk r=15 | ± | sign *p* | 95 % CI |
+|---|---|---|---|---|---|---|
+| pre-registered | fixed 0.20 | 0.5097 | +0.0406 | 22/11 | 0.080 | [+0.014, +0.069] |
+| **cross-fitted** | **on 4 folds, scored on the 5th** | **0.5061** | **+0.0370** | 20/13 | 0.296 | **[+0.003, +0.073]** |
+| cross-device | on DRAC22, scored on TUH (picks 0.20) | 0.5561 | +0.0698 | | | |
+| cross-device | on TUH, scored on DRAC22 (picks 0.15) | 0.4759 | +0.0182 | | | |
+| replication | fixed 0.20, 41-image arm, DRAC22-only networks | 0.4727 | +0.0182 | 8/4 | 0.388 | [+0.001, +0.040] |
+
+**The leakage-free estimate is 0.5061, +0.037 over the disk.** Selection optimism is
+0.0036. The inner selection picked 0.10 or 0.15 on every fold, never 0.20 — the plateau
+again, so the choice among 0.10–0.20 does not matter and the mechanism does. Every fold
+gains at the fixed floor (+0.017 to +0.070), both devices gain when the floor is chosen on
+the other, and the gain survives on networks that never saw TUH, at the DRAC22 size (+0.018
+there, +0.021 on the 68-image networks' DRAC22 subset).
+
+Against the level-set pipeline, reduced + relax is **+0.039 IoU, CI [+0.008, +0.073]** — the
+reduced pipeline is now better, not merely no worse. But 31/35 images: the mean is carried
+by large wins on the 33 images where the fallback fires, and no sign test reaches
+significance. Report it as a mean improvement, not a uniform one.
+
+Still the same 68 images throughout; §9 removes the selection leak, not the need for data
+the pipeline has never touched.
+
 ## What this means
 
 **The GVF + DRLSE block does not earn its place.** Both domains agree, and the larger one
@@ -459,17 +490,16 @@ happens when `P` is weak, not in how a contour is refined once `P` is strong.
 
 ## Still outstanding
 
-1. **Confirm `relaxFloor = 0.20` as pre-registered**, then make it the default. The floor
-   was chosen on the images it was scored on, so the current +0.041 is a sweep maximum in
-   the sense §7 warns about — the plateau makes the direction safe, the exact figure needs
-   one confirmatory pass.
+1. **Make `fallbackMode = "relax"`, `relaxFloor = 0.20` the default** — confirmed in §9
+   (cross-fitted +0.037). Not yet done. It must not move a pixel in `Post.mode = "levelset"`
+   for the frozen arms.
 2. **The deletion change itself** — its own commit, after this report is read. Remove
    `buildForce`, `gvfField`, `drlse`, the `Force`/`Gvf`/`Drlse` config blocks and the
    `lib/Fast-Gradient-Vector-Flow` dependency; **keep** `cnngvf.seedDisks`,
    `cfg.Drlse.seedRadius` (rename it), `seedMasks` and the morphology. The frozen arms must
    keep working, so `Post.mode = "levelset"` may need to survive as a compatibility path
    rather than being removed outright.
-2. **Update UNCLUSTERED.md** — it still says "No combined-domain number exists yet" and
+3. **Update UNCLUSTERED.md** — it still says "No combined-domain number exists yet" and
    lists the centroid claiming rule as an open bug. Both are now resolved.
 
 ## Deviations from REDUCE.md

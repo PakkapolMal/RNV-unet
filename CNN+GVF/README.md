@@ -40,6 +40,8 @@ run_batch.m             segment + score an arm  run_batch("DRACTUH_unclustered")
 run_cv.m                k-fold, every image out-of-sample
 run_steps.m             one image, every intermediate written out
 run_eval.m              re-score cached masks, no GPU, no re-segmentation
+run_ablate.m            post-processing variants off cached P, no GPU
+run_confirm_relax.m     leakage-free check of the relax fallback floor
 test_cnngvf.m           self-check, 8 checks
 run_train_unclustered.m  ]  thin wrappers on the frozen DRAC22-only arm
 run_batch_unclustered.m  ]
