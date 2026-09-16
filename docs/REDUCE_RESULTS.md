@@ -434,6 +434,43 @@ significance. Report it as a mean improvement, not a uniform one.
 Still the same 68 images throughout; §9 removes the selection leak, not the need for data
 the pipeline has never touched.
 
+## 10. An oracle seed filter — pipeline ranking under clean seeds
+
+**Not a score.** `run_oracle_seeds` keeps a localization point only if it lies in, or
+within `Patch.seedTolerance` = 20 px of, `FilledGT`, then re-runs each image through the
+fold network that held it out. Seeds are the patch centres and the heat-map, so `P` is
+re-inferred on the kept set; the same filter on the original cached `P` separates "a better
+`P`" from "fewer claims". GPU, 19 min.
+
+874 seeds → 842 near (32 dropped on 23 images) → 793 strictly inside.
+
+| post-processing | all seeds | inside GT | **near GT** | near, cached `P` | Δ near: prec / rec |
+|---|---|---|---|---|---|
+| levelset | 0.4708 | 0.4902 | **0.4963** (+0.025) | 0.4967 | 0.698 → 0.743 / 0.643 → 0.642 |
+| threshold, disk r=15 | 0.4691 | 0.4943 | **0.5003** (+0.031) | 0.4999 | 0.669 → 0.721 / unchanged |
+| threshold, relax 0.20 | 0.5097 | 0.5377 | **0.5412** (+0.032) | 0.5409 | 0.631 → 0.680 / unchanged |
+
+F1 moves by the same amounts (relax 0.6489 → 0.6794). The all-seeds column reproduces §6
+and §8 exactly.
+
+- **The gain is entirely precision.** A stray seed licenses `seedMasks` to claim a
+  false-positive component; dropping it drops the component, and recall does not move.
+- **Re-inferring `P` adds nothing** (0.5409 cached vs 0.5412 fresh). The cost of a bad seed
+  is paid at claiming, so a practical filter can live in post-processing without touching
+  the network.
+- **Concentrated.** In threshold mode 21 images improve and none regress (sign *p* < 1e-5),
+  and `641`, `428`, `nv (25)`, `419`, `576` give two-thirds of the gain — each from one or two
+  stray seeds. `641.png` alone is +0.44.
+- **Strict containment is worse than tolerance.** "Inside GT" also discards true seeds on
+  a lesion rim, costing recall and regressing 15–23 images.
+- `299.png` and `445.png` keep no seed at all and stay at 0 — localization, not segmentation.
+
+What it is for: **the ranking does not change under clean seeds.** Relax stays best by the
+same margin, reduced and level set stay within 0.004 of each other, and the filter's
+gain stacks on top of relax's rather than overlapping it. Reduced + relax is the pipeline to
+carry forward, and seed quality is a separate ~+0.03 upper bound on the precision side —
+real, but only 3.7 % of seeds are stray.
+
 ## What this means
 
 **The GVF + DRLSE block does not earn its place.** Both domains agree, and the larger one
