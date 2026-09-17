@@ -12,6 +12,7 @@ function run_refine(step, outputDir)
 %    0  lock the reference: reproduce relax 0.20, the cross-fit and the level
 %       set; freeze the size quintiles; per-seed trace; REF0 record
 %    1  cap the claim distance, cfg.Post.claimMaxDist
+%    2  seed features and the separability check (diagnostic, GT in diag/ only)
 %
 %  Ground truth is read HERE, never by the production functions it calls
 %  (cnngvf.maskFromProb and everything under it take P, seeds and cfg only).
@@ -38,6 +39,8 @@ switch step
         step0(cfg, D, Q, outDir);
     case 1
         step1(cfg, D, Q, outDir, refineDir);
+    case 2
+        step2(cfg, D, outDir, refineDir);
     otherwise
         error('run_refine:badStep', 'Step %d is not implemented yet.', step);
 end
@@ -238,6 +241,176 @@ writetable(XF, fullfile(outDir, 'per_image_crossfit.csv'));
 writetable(CF.surface, fullfile(outDir, 'surface_claimMaxDist.csv'));
 writetable(CF.chosen, fullfile(outDir, 'chosen_claimMaxDist.csv'));
 writetable(cdev, fullfile(outDir, 'crossdevice.csv'));
+end
+
+
+% =========================================================================
+% STEP 2
+% =========================================================================
+
+function step2(cfg, D, outDir, refineDir)
+% Diagnostic: ground truth labels the seeds, written to diag/ only. Builds no
+% production behaviour; decides whether step 3 is worth building.
+fid = fopen(fullfile(outDir, 'step2_summary.txt'), 'w');
+say = @(varargin) sayBoth(fid, varargin{:});
+t0 = tic;
+tol = cfg.Patch.seedTolerance;
+say('Step 2 - seed features and separability | %s | %d images | stray = more than %d px from FilledGT\n\n', ...
+    cfg.Arm, D.n, tol);
+
+% ---- features (production-safe) and labels (GT) --------------------------
+parts = cell(D.n, 1);
+for i = 1:D.n
+    seeds = D.seeds{i};
+    F = cnngvf.seedFeatures(double(D.P{i}), seeds, cfg);
+    dist = bwdist(D.gt{i});
+    [h, w] = size(dist);
+    r = min(max(round(seeds(:, 2)), 1), h);
+    c = min(max(round(seeds(:, 1)), 1), w);
+    gtDist = dist(sub2ind([h w], r, c));
+    parts{i} = [table(repmat(D.images(i), size(seeds, 1), 1), repmat(D.dset(i), size(seeds, 1), 1), ...
+        (1:size(seeds, 1))', seeds(:, 1), seeds(:, 2), gtDist, gtDist > tol, ...
+        'VariableNames', {'image', 'dataset', 'seedIdx', 'cx', 'cy', 'gtDist', 'stray'}), F];
+end
+T = vertcat(parts{:});
+diagDir = fullfile(refineDir, 'diag');
+if ~exist(diagDir, 'dir'), mkdir(diagDir); end
+writetable(T, fullfile(diagDir, 'step2_seed_features.csv'));
+
+nStray = nnz(T.stray);
+nImg = numel(unique(T.image(T.stray)));
+say('Seeds %d | near %d | stray %d on %d images (REDUCE_RESULTS section 10: 874 / 842 / 32 / 23)\n', ...
+    height(T), nnz(~T.stray), nStray, nImg);
+assert(height(T) == 874 && nStray == 32 && nImg == 23, 'run_refine:strayCounts', ...
+    'Seed counts do not match REDUCE_RESULTS section 10. STOP.');
+
+% ---- AUC per feature ------------------------------------------------------
+feats = ["fired", "peakP_r16", "peakP_r32", "meanP_r16", "support_R64", "support_R100", ...
+    "support_R150", "nnDist", "regionArea", "regionMeanP", "distToFiredComp", "imageSeedCount"];
+say('\nAUC, stray vs true (oriented >= 0.5; "low" = stray seeds have LOWER values)\n');
+say('  %-16s  %-4s   all   DRAC22    TUH\n', 'feature', 'dir');
+A = table();
+for f = feats
+    x = double(T.(f));
+    a = aucOf(x, T.stray);
+    dirn = "high";
+    if a < 0.5, dirn = "low"; end
+    orient = @(v) max(v, 1 - v);
+    ad = aucOf(x(T.dataset == "DRAC22"), T.stray(T.dataset == "DRAC22"));
+    at = aucOf(x(T.dataset == "TUH"), T.stray(T.dataset == "TUH"));
+    if dirn == "low", ad = 1 - ad; at = 1 - at; end
+    say('  %-16s  %-4s  %.3f   %.3f   %.3f\n', f, dirn, orient(a), ad, at);
+    A = [A; table(f, dirn, orient(a), ad, at, 'VariableNames', {'Feature', 'Direction', 'AUC', 'AUC_DRAC22', 'AUC_TUH'})]; %#ok<AGROW>
+end
+writetable(A, fullfile(outDir, 'auc.csv'));
+
+% ---- candidate rules ------------------------------------------------------
+oracle = oracleGain(cfg, D);
+rules = table();
+for k = [0 1 2 3 5]
+    for p0 = [0.05 0.10 0.20 0.30 0.50 0.70 0.90]
+        rules = [rules; ruleRow("~fired & support_R100<=k & peakP_r32<p0", k, p0, NaN, ...
+            ~T.fired & T.support_R100 <= k & T.peakP_r32 < p0, T, oracle)]; %#ok<AGROW>
+        rules = [rules; ruleRow("support_R100<=k & peakP_r32<p0", k, p0, NaN, ...
+            T.support_R100 <= k & T.peakP_r32 < p0, T, oracle)]; %#ok<AGROW>
+    end
+end
+for d0 = [0 20 50 100 150 200 300 500]
+    rules = [rules; ruleRow("~fired & distToFiredComp>d0", NaN, NaN, d0, ...
+        ~T.fired & T.distToFiredComp > d0, T, oracle)]; %#ok<AGROW>
+end
+writetable(rules, fullfile(outDir, 'rules.csv'));
+
+budget = floor(0.02 * nnz(~T.stray));
+ok = rules.TrueDropped <= budget & rules.SingleSeedOrphans == 0;
+say('\nRules within budget (true dropped <= %d = 2%% of %d, no single-seed image orphaned), best catch first\n', ...
+    budget, nnz(~T.stray));
+say('  %-42s  k    p0     d0   stray  true  orphanImg  oracle-weighted dIoU\n', 'rule');
+R = sortrows(rules(ok, :), {'StrayCaught', 'TrueDropped', 'OracleWeighted'}, {'descend', 'ascend', 'descend'});
+for j = 1:min(15, height(R))
+    say('  %-42s  %-3g  %-5g  %-4g  %2d/%d  %4d  %9d  %+.4f\n', R.Rule(j), R.k(j), R.p0(j), R.d0(j), ...
+        R.StrayCaught(j), nStray, R.TrueDropped(j), R.ImagesAllDropped(j), R.OracleWeighted(j));
+end
+say('  oracle ceiling (every stray seed dropped, cached P): %+.4f\n', sum(oracle.Gain) / D.n);
+
+best = 0;
+if height(R) > 0
+    best = R.StrayCaught(1) / nStray;
+end
+if best >= 0.5
+    verdict = "GO to step 3";
+elseif best < 0.3
+    verdict = "SKIP step 3, go to step 4";
+else
+    verdict = "AMBIGUOUS - stop and ask";
+end
+say('\nBest in-budget catch rate %.0f%% -> %s\n', 100 * best, verdict);
+
+% ---- the stray seeds themselves ------------------------------------------
+say('\nStray seeds (oracle relax gain per image in brackets)\n');
+S = T(T.stray, :);
+[~, loc] = ismember(S.image, oracle.Image);
+S.oracleGain = oracle.Gain(loc);
+S = sortrows(S, {'oracleGain', 'image'}, {'descend', 'ascend'});
+say('  %-12s seed  gtDist fired peak16 peak32 mean16 sup64 sup100 sup150 nnDist regArea regMeanP dFired nSeeds\n', 'image');
+for j = 1:height(S)
+    say('  %-12s %3d %7.0f %5d %6.2f %6.2f %6.2f %5d %6d %6d %6.0f %7d %8.2f %6.0f %6d  [%+.3f]\n', ...
+        S.image(j), S.seedIdx(j), S.gtDist(j), S.fired(j), S.peakP_r16(j), S.peakP_r32(j), S.meanP_r16(j), ...
+        S.support_R64(j), S.support_R100(j), S.support_R150(j), S.nnDist(j), S.regionArea(j), ...
+        S.regionMeanP(j), S.distToFiredComp(j), S.imageSeedCount(j), S.oracleGain(j));
+end
+writetable(S, fullfile(diagDir, 'step2_stray_seeds.csv'));
+say('\n%.0f s\n', toc(t0));
+fclose(fid);
+end
+
+
+function a = aucOf(x, pos)
+% Rank-based (Mann-Whitney) AUC, ties averaged. No Statistics Toolbox.
+n1 = nnz(pos); n0 = nnz(~pos);
+if n1 == 0 || n0 == 0
+    a = NaN;
+    return;
+end
+[~, ~, g] = unique(x(:));
+cnt = accumarray(g, 1);
+upper = cumsum(cnt);
+rankOf = upper - (cnt - 1) / 2;         % average rank of each distinct value
+r = rankOf(g);
+a = (sum(r(pos)) - n1 * (n1 + 1) / 2) / (n1 * n0);
+end
+
+
+function O = oracleGain(cfg, D)
+% REDUCE_RESULTS section 10, relax 0.20 on cached P: near-GT seeds only vs all.
+% Cached, not fresh, because a post-processing gate cannot re-infer P.
+X = readtable(fullfile(cfg.Paths.Output, 'oracle_seeds', 'oracle_per_image.csv'), 'TextType', 'string');
+all_ = X(X.Cond == "all_cachedP" & X.Post == "relax", :);
+near = X(X.Cond == "near_cachedP" & X.Post == "relax", :);
+[ok, loc] = ismember(D.images, all_.Image);
+[ok2, loc2] = ismember(D.images, near.Image);
+assert(all(ok) && all(ok2), 'oracle_per_image.csv does not cover every image');
+O = table(D.images, near.Iou(loc2) - all_.Iou(loc), 'VariableNames', {'Image', 'Gain'});
+end
+
+
+function row = ruleRow(name, k, p0, d0, drop, T, oracle)
+% Stray caught, true dropped, orphans, and the oracle-weighted capture: each
+% image's oracle gain times the fraction of its stray seeds this rule catches.
+imgs = unique(T.image);
+allDropped = 0; single = 0; weighted = 0;
+for im = imgs'
+    s = T.image == im;
+    if all(drop(s)), allDropped = allDropped + 1; end
+    if nnz(s) == 1 && drop(s), single = single + 1; end
+    st = s & T.stray;
+    if any(st)
+        weighted = weighted + oracle.Gain(oracle.Image == im) * nnz(drop(st)) / nnz(st);
+    end
+end
+row = table(name, k, p0, d0, nnz(drop & T.stray), nnz(drop & ~T.stray), allDropped, single, ...
+    weighted / numel(imgs), 'VariableNames', {'Rule', 'k', 'p0', 'd0', 'StrayCaught', 'TrueDropped', ...
+    'ImagesAllDropped', 'SingleSeedOrphans', 'OracleWeighted'});
 end
 
 

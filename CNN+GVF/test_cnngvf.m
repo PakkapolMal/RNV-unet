@@ -361,6 +361,18 @@ blind.Paths.GT = "Z:\no\such\gt"; blind.Paths.SegGT = "Z:\no\such\seg";
 [m2, ~, tr2] = cnngvf.maskFromProb(P, weak, blind);
 assert(isequal(m2, mask) && isequaln(tr2, tr), 'maskFromProb output depends on ground-truth paths');
 
+% Step 2, seedFeatures: agrees with the trace, counts OTHER seeds, and is as
+% blind to ground truth as maskFromProb.
+F = cnngvf.seedFeatures(P, weak, rc);
+assert(height(F) == 4 && isequal(F.fired, tr.fired), 'seedFeatures.fired disagrees with the trace');
+assert(isequal(F.regionArea, tr.claimedCompArea), 'seedFeatures.regionArea disagrees with the trace');
+assert(all(F.peakP_r32 >= F.peakP_r16) && all(F.peakP_r16 >= F.meanP_r16), 'disk peaks/means are inconsistent');
+assert(F.distToFiredComp(4) > 0 && all(F.distToFiredComp(F.fired) == 0), 'distToFiredComp is wrong');
+L = cnngvf.seedFeatures(zeros(300), [10 10; 60 10; 200 200], rc);   % 50 px apart, one far
+assert(isequal(L.support_R64, [1; 1; 0]) && L.nnDist(1) == 50 && all(L.imageSeedCount == 3), ...
+    'seedFeatures support / nnDist is wrong');
+assert(isequaln(cnngvf.seedFeatures(P, weak, blind), F), 'seedFeatures depends on ground-truth paths');
+
 fprintf('  refine trace              ok (relax per arm, level set inert, no GT)\n');
 end
 

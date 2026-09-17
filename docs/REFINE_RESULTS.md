@@ -2,7 +2,7 @@
 title: Refinement Plan — Measured Results
 description: Step-by-step record of REFINE.md on the 68-image combined domain, cached P, reduced pipeline + relax.
 kind: measurement-record
-status: in progress — steps 0–1 done
+status: in progress — steps 0–2 done
 dataset: DRAC22 + TUH (68)
 updated: 2026-09-17
 ---
@@ -217,3 +217,107 @@ Gate evaluation: rule 1 ✗ (+0.0000 < +0.003), rule 2 ✓ (CI lower bound 0.000
 ambiguous: the delta is below the +0.001…+0.003 band. → **REJECT**.
 
 **Next step:** 2.
+
+---
+
+## Step 2 — Seed features and the separability check
+
+**Decision:** SKIP step 3 → step 4 (best in-budget catch rate 25%, below the 30% floor)
+**Prediction written before running:** `support` and `peakP` separate stray seeds from true ones
+with AUC ≥ 0.80. Stray seeds are more than 100 px from any lesion, and true lesions attract many
+detections.
+**Config delta:** none (diagnostic only)
+**Code:** new `+cnngvf/seedFeatures.m` (P, seeds, cfg only; a test asserts it ignores GT paths);
+`run_refine.m` step 2; `test_cnngvf.m`
+
+Counts check against REDUCE_RESULTS §10: **874 seeds, 842 near, 32 stray, on 23 images**. They match.
+
+### AUC per feature (stray vs true, oriented ≥ 0.5)
+
+| feature | stray seeds have | all 68 | DRAC22 | TUH |
+|---|---|---|---|---|
+| fired | higher | 0.588 | 0.581 | 0.459 |
+| peakP_r16 | higher | 0.610 | 0.585 | 0.584 |
+| peakP_r32 | higher | 0.571 | 0.547 | 0.580 |
+| meanP_r16 | higher | 0.592 | 0.549 | 0.551 |
+| support_R64 | lower | **0.914** | 0.880 | 0.875 |
+| support_R100 | lower | **0.939** | 0.935 | 0.864 |
+| support_R150 | lower | **0.910** | 0.930 | 0.735 |
+| nnDist | higher | **0.929** | 0.943 | 0.789 |
+| regionArea | lower | 0.834 | 0.849 | 0.548 |
+| regionMeanP | higher | 0.734 | 0.665 | 0.564 |
+| distToFiredComp | higher | 0.563 | 0.580 | 0.486 |
+| imageSeedCount | lower | 0.757 | 0.738 | 0.456 |
+
+**The prediction is half wrong.** Support does separate (AUC 0.91–0.94). `peakP` does not
+(0.57–0.61), and its direction is the opposite of what the plan assumed: **stray seeds sit on
+high P**. 29 of 32 stray seeds fired, most with `peakP_r32` = 1.00. A stray seed is a confident
+false detection with its own confident CNN response, not a weak one.
+
+### Candidate rules
+
+Budget: ≤ 16 true seeds dropped (2% of 842) and no single-seed image orphaned. Best in-budget
+rows (full grid in `step2/rules.csv`):
+
+| rule | k | p0 | d0 | stray caught | true dropped | images losing every seed | oracle-weighted ΔIoU |
+|---|---|---|---|---|---|---|---|
+| `support_R100<=k & peakP_r32<p0` | 0 | 0.9 | | **8/32** | 10 | 1 | +0.0029 |
+| `support_R100<=k & peakP_r32<p0` | 1 | 0.7 | | 5/32 | 10 | 0 | +0.0004 |
+| `support_R100<=k & peakP_r32<p0` | 0 | 0.7 | | 3/32 | 3 | 0 | +0.0004 |
+| `~fired & support_R100<=k & peakP_r32<p0` | 1 | 0.7 | | 2/32 | 10 | 0 | +0.0002 |
+| `~fired & distToFiredComp>d0` | | | any | ≤ 1 | | | ≤ +0.0002 |
+
+Oracle ceiling (every stray seed dropped, cached `P`, relax 0.20): **+0.0312**.
+Every rule containing `~fired` or `peakP < p0` works against the signal, because stray seeds
+are fired and high-P.
+
+### Diagnostic beyond the pre-registered forms (not a result, not used for the gate)
+
+Support alone, from `diag/step2_seed_features.csv`:
+
+| rule | stray caught | true dropped (images) | images losing every seed | single-seed images orphaned |
+|---|---|---|---|---|
+| `support_R100<=0` (= `nnDist>100`) | 27/32 | 38 (28) | 14 | 7 |
+| `support_R150<=0` (= `nnDist>150`) | 22/32 | 27 (22) | 12 | 7 |
+| `nnDist>200` | 19/32 | 23 (20) | 11 | 7 |
+| `nnDist>250` | 16/32 | 22 (19) | 10 | 7 |
+| `nnDist>300` | 10/32 | 21 (18) | 10 | 7 |
+
+Even support alone does not fit the budget. An isolated seed is either a stray detection or the
+only detection on a small lesion, and support cannot tell those apart. The ~20 isolated true
+seeds are exactly what a gate would delete, and each is the only seed on its lesion, so dropping
+it removes that lesion. `keepLastSeed` would protect the 7 single-seed images, not the rest.
+
+### The stray seeds
+
+Sorted by the per-image oracle gain (full table in `diag/step2_stray_seeds.csv`). The five images
+carrying most of the gain:
+
+| image | seed | gtDist | fired | peakP_r32 | support_R100 | nnDist | regionArea | seeds in image | oracle gain |
+|---|---|---|---|---|---|---|---|---|---|
+| 641.png | 3 | 843 | 1 | 1.00 | 0 | 859 | 9 590 | 3 | +0.441 |
+| 428.png | 3 | 300 | 1 | 1.00 | 0 | 309 | 6 942 | 3 | +0.408 |
+| nv (25).png | 6 | 529 | 1 | 1.00 | 0 | 536 | 25 733 | 6 | +0.212 |
+| 419.png | 1 | 603 | 1 | 1.00 | 0 | 611 | 3 948 | 4 | +0.186 |
+| 419.png | 4 | 116 | 1 | 0.72 | 0 | 156 | 954 | 4 | +0.186 |
+| 576.png | 1 | 457 | 1 | 1.00 | 0 | 507 | 6 878 | 5 | +0.161 |
+
+Each is a lone, confident detection hundreds of pixels from any lesion, and the CNN responds
+fully to it. The 3 stray seeds on `nv (21).png` are the exception: 30–46 px off a 432k px lesion,
+with support 1–5.
+
+### Gate
+
+Best in-budget catch rate **25%** (8/32), below the 30% skip threshold → **SKIP step 3, go to
+step 4.** Not ambiguous under the plan's own bands.
+
+**Flagged for the human:**
+- The separating feature exists (support / `nnDist`, AUC 0.93), but none of the pre-registered
+  rule forms uses it the right way, and even support alone costs ~20 true seeds at 50% catch.
+- Whether a support-based gate would still raise IoU is an **IoU** question the plan's
+  **count** gate does not answer. Dropping a true seed costs nothing when another seed covers
+  its lesion, but an isolated true seed covers its lesion alone.
+- Running that would mean choosing a new rule form after seeing these numbers, so it was not
+  run.
+
+**Next step:** 4.
