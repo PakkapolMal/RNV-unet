@@ -13,6 +13,23 @@ Vocabulary: [../docs/CONTEXT.md](../docs/CONTEXT.md). Theory:
 > domain-independent — but the domain is now 68 images, and no combined figure has been
 > measured. Read UNCLUSTERED.md for the current picture.
 
+> **Branches: documents and code are split between `reduce-pipeline` and `reduce-refine`
+> (2026-09-17).** The refinement record ([../docs/REFINE.md](../docs/REFINE.md),
+> [../docs/REFINE_RESULTS.md](../docs/REFINE_RESULTS.md), the updated known limits in
+> UNCLUSTERED.md) was merged into `reduce-pipeline` **as documents only**. The code it describes
+> is only on `reduce-refine`:
+>
+> - relax set per arm (`DRACTUH_unclustered`: `fallbackMode = "relax"`, `relaxFloor = 0.20`,
+>   threshold mode only) and `initPhi` always planting disks (`arm.m`, `initPhi.m`)
+> - `run_refine.m`, `cnngvf.crossFit`, `pairedStats`, `refineScore`, `seedFeatures`, `d4`
+> - the rejected flags, all off by default: `Post.claimMaxDist`, `Post.relaxAlpha`, `Infer.tta`
+> - the per-seed trace from `maskFromProb` and the `Post` block in run summaries
+>
+> On `reduce-pipeline` the arm still defaults to the disk fallback. To run the best measured
+> configuration here (0.5061 cross-fitted over 68 images), set `cfg.Post.mode = "threshold"`,
+> `cfg.Post.fallbackMode = "relax"` and `cfg.Post.relaxFloor = 0.20` explicitly, as
+> `run_confirm_relax.m` does, or merge `reduce-refine`.
+
 ```
 +cnngvf/                package - one stage per file, all take a cfg struct
   defaults.m            config, dataset registry, toolbox guard, GPU flag
