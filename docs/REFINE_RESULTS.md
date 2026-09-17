@@ -16,9 +16,10 @@ TUH `2026-08-31 23:01:37`.
 
 Machine-readable outputs: `CNN+GVF/result/DRACTUH_unclustered_threshold/refine/`.
 
-**Branch note:** this record was merged into `reduce-pipeline` on its own. The code it describes
-(`run_refine.m`, `cnngvf.crossFit`, `seedFeatures`, `d4`, the `claimMaxDist` / `relaxAlpha` /
-`Infer.tta` flags, and relax set per arm) lives on branch `reduce-refine`.
+**Branch note:** on `reduce-pipeline` this record comes with the adopted configuration only
+(relax per arm: `arm.m`, `initPhi.m`). The rest of the code it describes (`run_refine.m`,
+`cnngvf.crossFit`, `seedFeatures`, `d4`, the `claimMaxDist` / `relaxAlpha` / `Infer.tta` flags)
+lives on branch `reduce-refine`.
 
 ## Summary
 

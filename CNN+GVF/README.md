@@ -13,22 +13,21 @@ Vocabulary: [../docs/CONTEXT.md](../docs/CONTEXT.md). Theory:
 > domain-independent — but the domain is now 68 images, and no combined figure has been
 > measured. Read UNCLUSTERED.md for the current picture.
 
-> **Branches: documents and code are split between `reduce-pipeline` and `reduce-refine`
-> (2026-09-17).** The refinement record ([../docs/REFINE.md](../docs/REFINE.md),
-> [../docs/REFINE_RESULTS.md](../docs/REFINE_RESULTS.md), the updated known limits in
-> UNCLUSTERED.md) was merged into `reduce-pipeline` **as documents only**. The code it describes
-> is only on `reduce-refine`:
+> **Branches (2026-09-17).**
 >
-> - relax set per arm (`DRACTUH_unclustered`: `fallbackMode = "relax"`, `relaxFloor = 0.20`,
->   threshold mode only) and `initPhi` always planting disks (`arm.m`, `initPhi.m`)
-> - `run_refine.m`, `cnngvf.crossFit`, `pairedStats`, `refineScore`, `seedFeatures`, `d4`
-> - the rejected flags, all off by default: `Post.claimMaxDist`, `Post.relaxAlpha`, `Infer.tta`
-> - the per-seed trace from `maskFromProb` and the `Post` block in run summaries
->
-> On `reduce-pipeline` the arm still defaults to the disk fallback. To run the best measured
-> configuration here (0.5061 cross-fitted over 68 images), set `cfg.Post.mode = "threshold"`,
-> `cfg.Post.fallbackMode = "relax"` and `cfg.Post.relaxFloor = 0.20` explicitly, as
-> `run_confirm_relax.m` does, or merge `reduce-refine`.
+> - **`master`** has the GVF + DRLSE (level-set) pipeline at its best measured version.
+> - **`reduce-pipeline`** (this branch) is the reduced pipeline. It has the refinement record
+>   ([../docs/REFINE.md](../docs/REFINE.md), [../docs/REFINE_RESULTS.md](../docs/REFINE_RESULTS.md),
+>   the updated known limits in UNCLUSTERED.md) and the adopted configuration: relax set per arm
+>   (`DRACTUH_unclustered`: `fallbackMode = "relax"`, `relaxFloor = 0.20`, threshold mode only;
+>   `initPhi` always plants disks, so the level set is unaffected). With `cfg.Post.mode =
+>   "threshold"` that arm is the best measured configuration: 0.5097 at floor 0.20, 0.5061
+>   cross-fitted over 68 images. Verified on this branch: threshold 0.5097 and level set 0.4708,
+>   both to 5e-16 per image.
+> - **`reduce-refine`** has the rest of the refinement code, none of it adopted: `run_refine.m`,
+>   `cnngvf.crossFit`, `pairedStats`, `refineScore`, `seedFeatures`, `d4`; the rejected flags
+>   `Post.claimMaxDist`, `Post.relaxAlpha`, `Infer.tta` (all off by default); the per-seed trace
+>   from `maskFromProb`; and the `Post` block in run summaries.
 
 ```
 +cnngvf/                package - one stage per file, all take a cfg struct

@@ -386,7 +386,24 @@ for a = cnngvf.arm()
     end
 end
 
-fprintf('  arm definitions           ok (%s)\n', strjoin(cnngvf.arm(), ', '));
+% Relax is set per arm, for threshold mode only: DRACTUH_unclustered relaxes at
+% 0.20, the frozen arms and defaults.m keep the disk, and initPhi always plants
+% disks so an arm that relaxes cannot move its level-set output.
+d = cnngvf.arm(cfg, "DRACTUH_unclustered");
+assert(d.Post.fallbackMode == "relax" && d.Post.relaxFloor == 0.20, 'DRACTUH_unclustered does not set relax 0.20');
+assert(cfg.Post.fallbackMode == "disk", 'defaults.m no longer keeps the disk');
+for a = ["clustered", "unclustered", "unclustered_boundary"]
+    assert(cnngvf.arm(cfg, a).Post.fallbackMode == "disk", 'frozen arm %s moved off the disk', a);
+end
+[truth, seeds] = syntheticScene();
+[xx, yy] = meshgrid(1:256, 1:256);
+P = max(stubProbMap(truth), 0.42 * exp(-((xx - 60).^2 + (yy - 200).^2) / (2 * 22^2)));
+weak = [seeds; 60 200];
+rc = cfg; rc.Post.fallbackMode = "relax"; rc.Post.relaxFloor = 0.20;
+assert(isequal(refine(P, weak, rc), refine(P, weak, cfg)), ...
+    'fallbackMode "relax" moved the level-set output - initPhi must always plant disks');
+
+fprintf('  arm definitions           ok (%s; relax per arm, level set inert)\n', strjoin(cnngvf.arm(), ', '));
 end
 
 
