@@ -2,7 +2,7 @@
 title: Refinement Plan — Measured Results
 description: Step-by-step record of REFINE.md on the 68-image combined domain, cached P, reduced pipeline + relax.
 kind: measurement-record
-status: in progress — steps 0–4 done
+status: in progress — steps 0–5 done
 dataset: DRAC22 + TUH (68)
 updated: 2026-09-17
 ---
@@ -400,3 +400,67 @@ The plan's "any number moves by more than 0.05 IoU" stop was not triggered: no a
 that far. The largest single-image move (−0.161) is the rule-4 failure recorded above.
 
 **Next step:** 5.
+
+---
+
+## Step 5 — Where the large-lesion pixels are lost
+
+**Prediction written before running:** more than 40% of Q5 false negatives lie outside every
+patch window.
+
+**Decision:** step 7 **SKIPPED**: only 7.6% of Q5 false-negative pixels lie outside every patch
+window (gate: < 20%). **Flagged for the human:** large-lesion loss is model-side, low `P` inside
+the window. The lever is training, not patch placement.
+**Config delta:** none (diagnostic, on CUR = relax 0.20)
+**Code:** `run_refine.m` step 5. Windows come from `cnngvf.seedPatch`, the geometry
+`inferProbMap` pastes with. Its raised-cosine weight is floored at 1e-3, so the effective window
+(weight > 0) is the whole 512 px patch.
+
+### FN buckets by size quintile (pooled pixels, fractions of the quintile's FN)
+
+| quintile | FN px | outside | lowP (< 0.20) | midP (0.20–0.50) | highP dropped | GT inside a window | mean P in GT | mean P in GT ∩ window |
+|---|---|---|---|---|---|---|---|---|
+| Q1 | 10 716 | **0.607** | 0.278 | 0.112 | 0.003 | 0.793 | 0.581 | 0.732 |
+| Q2 | 21 385 | 0.019 | 0.474 | 0.433 | 0.073 | 0.996 | 0.692 | 0.695 |
+| Q3 | 44 756 | 0.008 | 0.549 | 0.382 | 0.060 | 0.998 | 0.613 | 0.614 |
+| Q4 | 79 488 | 0.104 | 0.467 | 0.415 | 0.014 | 0.982 | 0.627 | 0.638 |
+| **Q5** | **543 794** | **0.076** | **0.757** | 0.160 | 0.007 | 0.980 | **0.389** | 0.397 |
+| all | 700 139 | 0.081 | 0.695 | 0.211 | 0.013 | | | |
+
+Q5 holds 78% of all FN pixels.
+
+### Ten largest GT images (65.0% of GT pixels, 67.7% of FN pixels)
+
+| image | dataset | GT px | FN px | outside | lowP | midP | highP | GT in window | mean P in GT |
+|---|---|---|---|---|---|---|---|---|---|
+| nv (21).png | TUH | 432 533 | 98 731 | 0.000 | 0.906 | 0.089 | 0.005 | 1.000 | 0.281 |
+| nv (22).png | TUH | 298 255 | 29 267 | 0.000 | 0.545 | 0.435 | 0.020 | 1.000 | 0.545 |
+| nv (13).png | TUH | 260 290 | 51 012 | 0.000 | 0.912 | 0.085 | 0.003 | 1.000 | 0.398 |
+| 1115.png | DRAC22 | 239 227 | 36 058 | 0.000 | 0.894 | 0.105 | 0.001 | 1.000 | 0.382 |
+| nv (17).png | TUH | 162 273 | 55 914 | 0.000 | 0.724 | 0.271 | 0.005 | 1.000 | 0.444 |
+| nv (9).png | TUH | 126 110 | 823 | 0.000 | 0.995 | 0.005 | 0.000 | 1.000 | 0.574 |
+| nv (27).png | TUH | 111 928 | 50 704 | 0.000 | 0.950 | 0.049 | 0.001 | 1.000 | 0.267 |
+| 795.png | DRAC22 | 100 656 | 93 304 | **0.442** | 0.537 | 0.020 | 0.000 | 0.590 | 0.081 |
+| 461.png | DRAC22 | 77 384 | 22 719 | 0.000 | 0.289 | 0.695 | 0.016 | 1.000 | 0.543 |
+| 1236.png | DRAC22 | 64 902 | 35 149 | 0.000 | 0.665 | 0.319 | 0.016 | 1.000 | 0.376 |
+
+What it shows:
+- **The large lesions are almost entirely inside a patch, and `P` is low on them.** Nine of the
+  ten largest have 100% of their GT inside some window, and 72–95% of their misses sit at
+  P < 0.20. Mean `P` inside Q5 GT is 0.39, against 0.61–0.69 for Q2–Q4. The network sees these
+  lesions and under-responds; extending patches would not help.
+- **Nearly all Q5 "outside" pixels are one image.** `795.png`'s left lesion has no localization
+  point within 512 px (41k of the ~41k Q5 outside pixels). That is a localization miss.
+- **Q1's 61% outside is the two known no-seed images:** `299.png` (all 2 648 GT px outside) and
+  `445.png` (3 856 of 4 052). Again localization, as §10 found.
+- **`highP_dropped` is negligible** (1.3% overall). Claiming and `MinArea` are not losing lesion
+  pixels.
+- The largest miss mode overall is `lowP`, 70% of all FN pixels. That is what relax at 0.20
+  cannot reach and what step 4 showed a lower floor cannot take back without flooding.
+
+Overlays for the 14 Q5 images: `refine/diag/coverage/`. Green TP, blue FP, FN red outside /
+orange lowP / yellow midP / magenta highP, white window edge. `795` was inspected: the red lesion
+has no seed nearby, the orange one lies inside a window at low `P`, and the two blue FP blobs
+belong to its two stray seeds (step 2).
+
+**Next step:** 6 (TTA, GPU). Step 8 follows, since step 7 is skipped.

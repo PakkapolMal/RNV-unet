@@ -13,6 +13,8 @@ function run_refine(step, outputDir)
 %       set; freeze the size quintiles; per-seed trace; REF0 record
 %    1  cap the claim distance, cfg.Post.claimMaxDist
 %    2  seed features and the separability check (diagnostic, GT in diag/ only)
+%    4  relax guard, cfg.Post.relaxAlpha (step 3 was skipped on step 2's gate)
+%    5  where the large-lesion pixels are lost (diagnostic, GT in diag/ only)
 %
 %  Ground truth is read HERE, never by the production functions it calls
 %  (cnngvf.maskFromProb and everything under it take P, seeds and cfg only).
@@ -43,6 +45,8 @@ switch step
         step2(cfg, D, outDir, refineDir);
     case 4
         step4(cfg, D, Q, outDir, refineDir);
+    case 5
+        step5(cfg, D, Q, outDir, refineDir);
     otherwise
         error('run_refine:badStep', 'Step %d is not implemented yet.', step);
 end
@@ -498,6 +502,122 @@ writetable(CF.surface, fullfile(outDir, 'surface_relaxAlpha_floor.csv'));
 writetable(CF.chosen, fullfile(outDir, 'chosen_relaxAlpha_floor.csv'));
 writetable(cdev, fullfile(outDir, 'crossdevice.csv'));
 writetable(struct2table(G), fullfile(outDir, 'gate.csv'));
+end
+
+
+% =========================================================================
+% STEP 5
+% =========================================================================
+
+function step5(cfg, D, Q, outDir, refineDir)
+% Diagnostic on CUR: every false-negative pixel goes into exactly one bucket.
+%   outside        outside every patch window
+%   lowP           inside a window, P < relaxFloor
+%   midP           inside, relaxFloor <= P < tau
+%   highP_dropped  inside, P >= tau, but not in the output (claiming, MinArea)
+% The windows come from cnngvf.seedPatch, the geometry cnngvf.inferProbMap
+% pastes with. Its raised-cosine weight is floored at 1e-3, so the effective
+% window (weight > 0) is the whole 512 px patch.
+fid = fopen(fullfile(outDir, 'step5_summary.txt'), 'w');
+say = @(varargin) sayBoth(fid, varargin{:});
+t0 = tic;
+say('Step 5 - where the large-lesion pixels are lost | %s | %d images | CUR: relax %.2f, tau %.2f, patch %d\n\n', ...
+    cfg.Arm, D.n, cfg.Post.relaxFloor, cfg.Post.tau, cfg.Patch.size);
+covDir = fullfile(refineDir, 'diag', 'coverage');
+if ~exist(covDir, 'dir'), mkdir(covDir); end
+
+[~, qloc] = ismember(D.images, Q.Image);
+q = Q.Q(qloc);
+names = ["outside", "lowP", "midP", "highP_dropped"];
+B = zeros(D.n, 4);
+[gtPx, fnPx, sumPgt, gtInWin, sumPgtWin] = deal(zeros(D.n, 1));
+for i = 1:D.n
+    P = double(D.P{i});
+    gt = D.gt{i};
+    [h, w] = size(P);
+    pred = cnngvf.maskFromProb(P, D.seeds{i}, cfg);
+
+    win = false(h, w);
+    for s = 1:size(D.seeds{i}, 1)
+        [~, rows, cols] = cnngvf.seedPatch(zeros(h, w, 'single'), D.seeds{i}(s, :), D.seeds{i}(s, :), cfg);
+        win(rows(rows >= 1 & rows <= h), cols(cols >= 1 & cols <= w)) = true;
+    end
+
+    fn = gt & ~pred;
+    bucket = zeros(h, w, 'uint8');
+    bucket(fn & ~win) = 1;
+    bucket(fn & win & P < cfg.Post.relaxFloor) = 2;
+    bucket(fn & win & P >= cfg.Post.relaxFloor & P < cfg.Post.tau) = 3;
+    bucket(fn & win & P >= cfg.Post.tau) = 4;
+    assert(nnz(bucket) == nnz(fn), 'a false-negative pixel fell in no bucket');
+    B(i, :) = accumarray(double(bucket(fn)), 1, [4 1])';
+    gtPx(i) = nnz(gt); fnPx(i) = nnz(fn);
+    sumPgt(i) = sum(P(gt)); gtInWin(i) = nnz(gt & win); sumPgtWin(i) = sum(P(gt & win));
+
+    if q(i) == 5
+        writeOverlay(fullfile(covDir, char(erase(D.images(i), ".png") + "_coverage.png")), ...
+            P, gt, pred, win, bucket);
+    end
+end
+
+T = [table(D.images, D.dset, q, gtPx, fnPx, 'VariableNames', {'Image', 'Dataset', 'Q', 'GtPx', 'FnPx'}), ...
+    array2table(B, 'VariableNames', cellstr(names)), ...
+    table(sumPgt ./ max(gtPx, 1), gtInWin ./ max(gtPx, 1), sumPgtWin ./ max(gtInWin, 1), ...
+    'VariableNames', {'MeanPInGt', 'GtInWindowFrac', 'MeanPInGtInWindow'})];
+writetable(T, fullfile(refineDir, 'diag', 'step5_fn_buckets.csv'));
+
+say('FN pixel buckets by size quintile (pooled pixels; fractions of that quintile''s FN)\n');
+say('  Q   FN px       outside   lowP    midP   highP_dropped | GT in window | mean P in GT | in GT & window\n');
+for k = 1:5
+    s = q == k;
+    f = sum(B(s, :), 1) / max(sum(fnPx(s)), 1);
+    say('  Q%d  %9d   %.3f   %.3f   %.3f   %.3f         |   %.3f      |   %.3f      |   %.3f\n', k, sum(fnPx(s)), f, ...
+        sum(gtInWin(s)) / sum(gtPx(s)), sum(sumPgt(s)) / sum(gtPx(s)), sum(sumPgtWin(s)) / max(sum(gtInWin(s)), 1));
+end
+s = true(D.n, 1);
+f = sum(B, 1) / sum(fnPx);
+say('  all %9d   %.3f   %.3f   %.3f   %.3f\n', sum(fnPx), f);
+
+say('\nTen largest GT images\n');
+say('  %-12s %-6s %8s %8s  outside  lowP   midP   highP | GT in win  mean P in GT\n', 'image', 'dset', 'GT px', 'FN px');
+[~, ord] = sort(gtPx, 'descend');
+for i = ord(1:10)'
+    f = B(i, :) / max(fnPx(i), 1);
+    say('  %-12s %-6s %8d %8d  %.3f   %.3f  %.3f  %.3f |  %.3f      %.3f\n', D.images(i), D.dset(i), gtPx(i), fnPx(i), f, ...
+        T.GtInWindowFrac(i), T.MeanPInGt(i));
+end
+say('  the ten hold %.1f%% of all GT pixels and %.1f%% of all FN pixels\n', ...
+    100 * sum(gtPx(ord(1:10))) / sum(gtPx), 100 * sum(fnPx(ord(1:10))) / sum(fnPx));
+
+q5 = sum(B(q == 5, 1)) / sum(fnPx(q == 5));
+if q5 >= 0.40
+    verdict = "step 7 ENABLED";
+elseif q5 < 0.20
+    verdict = "step 7 SKIPPED - large-lesion loss is model-side (low P inside the window); the lever is training";
+else
+    verdict = "AMBIGUOUS - stop and ask";
+end
+say('\nGate: outside = %.1f%% of Q5 FN pixels -> %s\n', 100 * q5, verdict);
+say('Overlays: %s (%d Q5 images; green TP, blue FP, FN red outside / orange lowP / yellow midP / magenta highP, white window edge)\n', ...
+    covDir, nnz(q == 5));
+say('\n%.0f s\n', toc(t0));
+fclose(fid);
+writetable(T, fullfile(outDir, 'per_image_buckets.csv'));
+end
+
+
+function writeOverlay(path, P, gt, pred, win, bucket)
+base = repmat(0.35 * P, 1, 1, 3);
+paint = @(img, m, rgb) img .* ~m + reshape(rgb, 1, 1, 3) .* m;
+img = base;
+img = paint(img, gt & pred, [0.1 0.8 0.1]);
+img = paint(img, pred & ~gt, [0.2 0.4 1.0]);
+img = paint(img, bucket == 1, [1.0 0.1 0.1]);
+img = paint(img, bucket == 2, [1.0 0.55 0.0]);
+img = paint(img, bucket == 3, [1.0 1.0 0.0]);
+img = paint(img, bucket == 4, [1.0 0.0 1.0]);
+img = paint(img, bwperim(win), [1 1 1]);
+imwrite(img, path);
 end
 
 
