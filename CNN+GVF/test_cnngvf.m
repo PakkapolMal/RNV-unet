@@ -329,6 +329,28 @@ assert(all(id > 0) && isequal(dist, [0; 2]), 'claimDist should be [0; 2], got %s
 [~, ~, id, dist] = cnngvf.seedMasks(false(50), [10 10], 0, "boundary");
 assert(id == 0 && isinf(dist), 'a seed that claims nothing should get id 0, distance Inf');
 
+% Step 1, claimMaxDist: one component, one seed 50 px from it. Claims at Inf,
+% claims nothing at 20; the default reproduces the uncapped output exactly.
+one = false(200);
+one(80:120, 20:60) = true;                     % seed at col 110 is 50 px right of col 60
+[m, u] = cnngvf.seedMasks(one, [110 100], 0, "boundary");
+[mInf, uInf] = cnngvf.seedMasks(one, [110 100], 0, "boundary", Inf);
+assert(isequal(m, mInf) && isequal(u, uInf) && any(u(:)), 'claimMaxDist Inf changed the claim');
+[m20, u20, id20, d20] = cnngvf.seedMasks(one, [110 100], 0, "boundary", 20);
+assert(isempty(m20{1}) && ~any(u20(:)) && id20 == 0 && isinf(d20), ...
+    'a seed 50 px away still claimed at claimMaxDist 20');
+m50 = cnngvf.seedMasks(one, [110 100], 0, "boundary", 50);
+assert(~isempty(m50{1}), 'a seed exactly at claimMaxDist should still claim');
+
+% Through maskFromProb: Inf is byte-identical to the uncapped call, and the level
+% set ignores the flag entirely.
+capped = rc; capped.Post.claimMaxDist = 0;
+[mc, ~, trc] = cnngvf.maskFromProb(P, weak, capped);
+assert(isequal(mc, mask) && isequaln(trc, tr), ...
+    'claimMaxDist 0 moved a scene where every seed stands on its component');
+lsCap = dc; lsCap.Post.claimMaxDist = 0;
+assert(isequal(refine(P, weak, lsCap), refine(P, weak, dc)), 'claimMaxDist reached the level set');
+
 % Leakage rule 1: with every ground-truth path pointed at nothing, the output is
 % unchanged - so the production path cannot be reading it.
 blind = rc;

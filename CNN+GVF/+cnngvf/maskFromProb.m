@@ -67,11 +67,11 @@ BW = imfill(BW, 'holes');
 % evolution; with no evolution there is nothing to initialize, so the two
 % collapse into one call.
 if nargout < 3
-    [perSeed, mask] = cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule);
+    [perSeed, mask] = cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule, cfg.Post.claimMaxDist);
     return;
 end
 [perSeed, mask, compId, claimDist] = ...
-    cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule);
+    cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule, cfg.Post.claimMaxDist);
 
 [h, w] = size(P);
 row   = min(max(round(seeds(:, 2)), 1), h);

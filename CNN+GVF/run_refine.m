@@ -11,6 +11,7 @@ function run_refine(step, outputDir)
 %  Steps
 %    0  lock the reference: reproduce relax 0.20, the cross-fit and the level
 %       set; freeze the size quintiles; per-seed trace; REF0 record
+%    1  cap the claim distance, cfg.Post.claimMaxDist
 %
 %  Ground truth is read HERE, never by the production functions it calls
 %  (cnngvf.maskFromProb and everything under it take P, seeds and cfg only).
@@ -35,6 +36,8 @@ Q = quintiles(D, refineDir);
 switch step
     case 0
         step0(cfg, D, Q, outDir);
+    case 1
+        step1(cfg, D, Q, outDir, refineDir);
     otherwise
         error('run_refine:badStep', 'Step %d is not implemented yet.', step);
 end
@@ -143,6 +146,191 @@ writetable(CF.chosen, fullfile(outDir, 'chosen_relaxFloor.csv'));
 writetable(trace, fullfile(outDir, 'trace.csv'));
 writetable(table(D.images, lsIou, 'VariableNames', {'Image', 'LevelsetIou'}), fullfile(outDir, 'per_image_levelset.csv'));
 assert(okA && okB && okC, 'run_refine:verify', 'Step 0 verification failed - see step0_summary.txt');
+end
+
+
+% =========================================================================
+% STEP 1
+% =========================================================================
+
+function step1(cfg, D, Q, outDir, refineDir)
+fid = fopen(fullfile(outDir, 'step1_summary.txt'), 'w');
+say = @(varargin) sayBoth(fid, varargin{:});
+t0 = tic;
+say('Step 1 - cap the claim distance | %s | %d images | %s\n\n', cfg.Arm, D.n, cfg.Paths.Output);
+
+% CUR = REF0 until something is adopted. Flag off must reproduce step 0 exactly.
+assert(isinf(cfg.Post.claimMaxDist), 'claimMaxDist default is not Inf');
+[CUR, trace] = scoreAll(cfg, D, true);
+ref0 = readtable(fullfile(refineDir, 'step0', 'per_image_REF0.csv'), 'TextType', 'string');
+dRef = max(abs(CUR.Iou - ref0.Iou));
+say('Flag off (claimMaxDist Inf) vs step-0 REF0: max |dIoU| %.2g\n', dRef);
+assert(dRef < 1e-12 && isequal(CUR.Image, ref0.Image), 'run_refine:flagOff', ...
+    'claimMaxDist = Inf does not reproduce REF0');
+
+far = trace.claimDist > 20 & isfinite(trace.claimDist);
+say('Seeds with 20 < claimDist < Inf: %d on %d images\n\n', nnz(far), numel(unique(trace.image(far))));
+if ~any(far)
+    say('SKIP: mechanism absent.\n');
+    fclose(fid);
+    return;
+end
+
+% Most conservative (feature off) first, for the tie-break.
+grid = table([Inf 128 64 32 20 10 0]', 'VariableNames', {'claimMaxDist'});
+fn = @(g) scoreAll(setField(cfg, 'claimMaxDist', g.claimMaxDist), D, false);
+CF = cnngvf.crossFit(grid, fn, D.fold, D.dset);
+pre = CF.rows{grid.claimMaxDist == 20};
+XF = CF.perImage;
+
+arms = {"CUR (Inf)", CUR; "pre-registered 20", pre; "cross-fitted", XF};
+[summary, stats] = reportArms(say, arms, CUR, Q);
+say('\nCross-fitted chosen per fold: %s\n', mat2str(grid.claimMaxDist(CF.chosen.GridRow)'));
+cdev = crossDeviceDeltas(say, CF, grid, 'claimMaxDist', CUR, D);
+
+say('\nSurface (full domain, NOT a result)\n');
+for g = 1:height(CF.surface)
+    say('  claimMaxDist %-4g  IoU %.4f  prec %.4f  rec %.4f  pooled IoU %.4f\n', CF.surface.claimMaxDist(g), ...
+        CF.surface.MeanIou(g), CF.surface.MeanPrec(g), CF.surface.MeanRec(g), CF.surface.PooledIou(g));
+end
+
+G = gate(say, XF, CUR, cdev);
+if G.decision == "ADOPT" && ~all(grid.claimMaxDist(CF.chosen.GridRow) == 20) ...
+        && mean(pre.Iou) >= mean(XF.Iou) - 0.002
+    say('Pre-registered 20 is within 0.002 of the cross-fitted IoU: adopt 20.\n');
+end
+
+% ---- diagnostic, GT: which of the disconnected seeds are stray ------------
+diagDir = fullfile(refineDir, 'diag');
+if ~exist(diagDir, 'dir'), mkdir(diagDir); end
+gtDist = nan(height(trace), 1);
+for i = 1:D.n
+    s = trace.image == D.images(i);
+    dist = bwdist(D.gt{i});
+    [h, w] = size(dist);
+    r = min(max(round(trace.cy(s)), 1), h);
+    c = min(max(round(trace.cx(s)), 1), w);
+    gtDist(s) = dist(sub2ind([h w], r, c));
+end
+tol = cfg.Patch.seedTolerance;
+cut = trace(far, {'image', 'seedIdx', 'cx', 'cy', 'claimDist', 'claimedCompArea'});
+cut.gtDist = gtDist(far);
+cut.stray  = cut.gtDist > tol;
+writetable(cut, fullfile(diagDir, 'step1_disconnected.csv'));
+say('\nDiagnostic (GT, diag/ only): seeds each cap disconnects; stray = more than %d px from FilledGT\n', tol);
+for cap = [128 64 32 20 10 0]
+    s = trace.claimDist > cap & isfinite(trace.claimDist);
+    say('  cap %-4g disconnects %d seeds: %d stray, %d true\n', cap, nnz(s), ...
+        nnz(s & gtDist > tol), nnz(s & gtDist <= tol));
+end
+for k = 1:height(cut)
+    say('    %-12s seed %2d  claimDist %6.1f  gtDist %6.1f  stray %d\n', cut.image(k), cut.seedIdx(k), ...
+        cut.claimDist(k), cut.gtDist(k), cut.stray(k));
+end
+
+say('\n%.0f s\n', toc(t0));
+fclose(fid);
+writetable(summary, fullfile(outDir, 'summary.csv'));
+writetable(stats, fullfile(outDir, 'stats.csv'));
+writetable(CUR, fullfile(outDir, 'per_image_CUR.csv'));
+writetable(pre, fullfile(outDir, 'per_image_pre20.csv'));
+writetable(XF, fullfile(outDir, 'per_image_crossfit.csv'));
+writetable(CF.surface, fullfile(outDir, 'surface_claimMaxDist.csv'));
+writetable(CF.chosen, fullfile(outDir, 'chosen_claimMaxDist.csv'));
+writetable(cdev, fullfile(outDir, 'crossdevice.csv'));
+end
+
+
+% =========================================================================
+% REPORTING AND THE ADOPTION RULE
+% =========================================================================
+
+function [summary, stats] = reportArms(say, arms, C, Q)
+% One line per arm: aggregates and paired stats vs the comparator C, then the
+% dataset and size-quintile breakouts, then the last arm's movers.
+summary = table(); stats = table();
+say('  %-20s    IoU  median      F1    prec     rec   pIoU   pRec |    dIoU  +/-     sign p  Wilc p  95%% CI\n', 'arm');
+for a = 1:size(arms, 1)
+    T = arms{a, 2};
+    assert(isequal(T.Image, C.Image), 'arm %s is not paired with the comparator', arms{a, 1});
+    r = cnngvf.refineScore(T, Q);
+    d = T.Iou - C.Iou;
+    S = cnngvf.pairedStats(d, T.Image);
+    say('  %-20s %.4f  %.4f  %.4f  %.4f  %.4f %.4f %.4f | %+.4f %2d/%-2d  %.4f  %.4f [%+.4f, %+.4f]\n', ...
+        arms{a, 1}, r.MeanIou, r.MedianIou, r.MeanF1, r.MeanPrec, r.MeanRec, r.PooledIou, r.PooledRec, ...
+        S.mean, S.up, S.down, S.signP, S.wilcoxonP, S.ci(1), S.ci(2));
+    if abs(S.mean) > 0.05
+        say('  !! %s moves mean IoU by %+.4f - more likely a bug than a finding. STOP.\n', arms{a, 1}, S.mean);
+    end
+    summary = [summary; [table(arms{a, 1}, 'VariableNames', {'Arm'}), r]]; %#ok<AGROW>
+    stats = [stats; table(arms{a, 1}, S.mean, S.up, S.down, S.signP, S.wilcoxonP, S.ci(1), S.ci(2), ...
+        min(d), 'VariableNames', {'Arm', 'dIoU', 'Better', 'Worse', 'SignP', 'WilcoxonP', ...
+        'CiLo', 'CiHi', 'WorstImageDelta'})]; %#ok<AGROW>
+end
+say('\n  %-20s  DRAC22  TUH    | Q1..Q5 as IoU / Pred-GT\n', 'arm');
+for a = 1:height(summary)
+    r = summary(a, :);
+    q = sprintf('%.4f/%.2f  ', [r{1, "Iou_Q" + (1:5)}; r{1, "PredGt_Q" + (1:5)}]);
+    say('  %-20s  %.4f  %.4f | %s\n', r.Arm, r.Iou_DRAC22, r.Iou_TUH, q);
+end
+T = arms{end, 2};
+S = cnngvf.pairedStats(T.Iou - C.Iou, T.Image);
+say('\n  Movers, %s: better %s | worse %s\n', arms{end, 1}, moverText(S.gains), moverText(S.losses));
+end
+
+
+function cdev = crossDeviceDeltas(say, CF, grid, param, C, D)
+cdev = CF.crossDevice;
+cdev.Value = grid.(param)(cdev.GridRow);
+cdev.dIoU = zeros(height(cdev), 1);
+for k = 1:height(cdev)
+    te = D.dset == cdev.Test(k);
+    cdev.dIoU(k) = mean(CF.rows{cdev.GridRow(k)}.Iou(te) - C.Iou(te));
+    say('Cross-device: choose on %s -> %s = %g, score %s: %.4f (%+.4f vs CUR)\n', cdev.Train(k), param, ...
+        cdev.Value(k), cdev.Test(k), cdev.TestIou(k), cdev.dIoU(k));
+end
+end
+
+
+function G = gate(say, T, C, cdev)
+% ../docs/REFINE.md, "The adoption rule", on the cross-fitted arm vs CUR.
+d = T.Iou - C.Iou;
+S = cnngvf.pairedStats(d, T.Image);
+pT = cnngvf.refineScore(T).PooledIou;
+pC = cnngvf.refineScore(C).PooledIou;
+G.dIoU = S.mean;
+G.r1 = S.mean >= 0.003;
+G.r2 = S.ci(1) > -0.005;
+G.r3 = pT >= pC - 1e-12;
+G.r4 = min(d) >= -0.10;
+G.r5 = all(cdev.dIoU >= -1e-12);
+say('\nGate: rule 1 %s (dIoU %+.4f >= +0.003) | rule 2 %s (CI lo %+.4f > -0.005) | rule 3 %s (pooled IoU %.4f vs %.4f)\n', ...
+    mark(G.r1), S.mean, mark(G.r2), S.ci(1), mark(G.r3), pT, pC);
+say('      rule 4 %s (worst image %+.4f >= -0.10) | rule 5 %s (cross-device dIoU %s)\n', ...
+    mark(G.r4), min(d), mark(G.r5), mat2str(round(cdev.dIoU', 4)));
+if G.r1 && G.r2 && G.r3 && G.r4 && G.r5
+    G.decision = "ADOPT";
+elseif (G.r1 && G.r2 && ~(G.r4 && G.r5)) || (S.mean >= 0.001 && S.mean < 0.003)
+    G.decision = "AMBIGUOUS";
+else
+    G.decision = "REJECT";
+end
+say('Decision by the rule: %s\n', G.decision);
+end
+
+
+function s = moverText(M)
+if height(M) == 0
+    s = '(none)';
+    return;
+end
+s = char(strjoin(compose("%s %+.3f", M.Image, M.Delta), ', '));
+end
+
+
+function s = mark(ok)
+s = 'FAIL';
+if ok, s = 'OK'; end
 end
 
 

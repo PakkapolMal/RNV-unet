@@ -373,6 +373,14 @@ cfg.Post.fallbackMode = "disk";
 cfg.Post.relaxWindow = 128;    % px searched either side of the seed
 cfg.Post.relaxFloor  = 0.10;   % the permissive threshold applied in that window
 
+% Farthest a seed standing on background may reach to claim a component, px.
+% Threshold mode only (cnngvf.maskFromProb passes it; the level set does not).
+% Inf is the historical behaviour. Training drops seeds beyond
+% Patch.seedTolerance = 20 px of a lesion; inference never capped anything.
+% Step 0's trace found 7 seeds claiming beyond 20 px, all FIRED seeds whose own
+% component was under MinArea (../docs/REFINE_RESULTS.md, step 1).
+cfg.Post.claimMaxDist = Inf;
+
 % imclose(disk 2) before the fill. Justified for the level set as bridging the
 % 1-2 px gaps it leaves along ragged frond boundaries; whether a thresholded map
 % needs the same bridging is the second switch the ablation measures.

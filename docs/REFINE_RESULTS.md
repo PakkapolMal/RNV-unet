@@ -2,7 +2,7 @@
 title: Refinement Plan — Measured Results
 description: Step-by-step record of REFINE.md on the 68-image combined domain, cached P, reduced pipeline + relax.
 kind: measurement-record
-status: in progress — step 0 done
+status: in progress — steps 0–1 done
 dataset: DRAC22 + TUH (68)
 updated: 2026-09-17
 ---
@@ -157,3 +157,63 @@ The mechanism is present, so step 1 is not a SKIP. Its ceiling is small: 7 seeds
 nested structs and naming the strel, so every later flag is recorded automatically.
 
 **Next step:** 1.
+
+---
+
+## Step 1 — Cap the claim distance
+
+**Prediction written before running:** ΔIoU 0 to +0.010, all precision. Relax may already
+absorb most of it, because a missed seed builds its own relaxed region instead of claiming a
+far component. *(Added after step 0, before any step-1 scoring: the ceiling is small, since
+only 7 seeds on 5 images claim beyond 20 px, three of them on `299.png`, which has no seed
+near its lesion.)*
+
+**Decision:** REJECT (the effect is exactly zero; the flag stays in the code, default `Inf`)
+**Config delta:** `Post.claimMaxDist` ∈ {Inf, 128, 64, 32, 20, 10, 0}; CUR stays `Inf`
+**Code:** `+cnngvf/defaults.m`, `seedMasks.m` (5th argument `maxDist`), `maskFromProb.m`,
+`run_refine.m` (step 1, plus the shared report / gate helpers), `test_cnngvf.m`
+
+Flag off (`Inf`) reproduces step-0 REF0: max per-image |ΔIoU| 5e-16. The level set never
+receives the flag (`initPhi`, `segmentImage` call `seedMasks` without it); a test asserts it.
+
+| arm | IoU | median | F1 | prec | rec | pooled IoU | pooled rec | ΔIoU vs CUR | ± | sign p | Wilcoxon p | 95% CI |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| CUR = REF0 (`Inf`) | 0.5097 | 0.5299 | 0.6489 | 0.6311 | 0.7579 | 0.5896 | 0.7570 | — | | | | |
+| pre-registered 20 | 0.5097 | 0.5299 | 0.6489 | 0.6311 | 0.7579 | 0.5896 | 0.7570 | +0.0000 | 0/0 | 1 | 1 | [0, 0] |
+| **cross-fitted** | **0.5097** | 0.5299 | 0.6489 | 0.6311 | 0.7579 | 0.5896 | 0.7570 | **+0.0000** | 0/0 | 1 | 1 | [0, 0] |
+
+The comparison is against REF0 and CUR together, since they are the same configuration here.
+
+Cross-fitted chosen parameters per fold: `Inf` ×5. Every grid row ties exactly, and the tie-break
+picks the feature-off end.
+Cross-device: DRAC22→TUH `Inf`, +0.0000; TUH→DRAC22 `Inf`, +0.0000.
+Surface: every cap from 0 to `Inf` scores 0.5097 / prec 0.6311 / rec 0.7579 / pooled IoU 0.5896.
+Size quintiles and dataset breakout: identical to REF0.
+Movers: none.
+
+**Why it is exactly zero.** Each of the 7 far claims lands on a component that at least one
+other seed claims from inside it, so capping removes a duplicate claim and leaves the union
+unchanged:
+
+| image | far seed | claimDist | component also claimed from inside by seeds |
+|---|---|---|---|
+| 1236.png | 8 | 31.4 | 9–14 |
+| 125.png | 5 | 98.5 | 1, 3 |
+| 299.png | 2, 3, 4 | 110.6, 585.7, 672.1 | 1 |
+| 429.png | 5 | 38.0 | 1, 2 |
+| 498.png | 2 | 42.5 | 1, 5, 6 |
+
+Diagnostic (GT, `diag/step1_disconnected.csv`): of the 7 seeds a cap of 20 disconnects, 4 are
+stray (`125` seed 5, `299` seeds 2–4, all > 100 px from `FilledGT`) and 3 are true seeds within
+0 px of a lesion whose own `P` component fell under `MinArea`. Caps of 64 and 128 disconnect
+only stray seeds (4 and 2), but it makes no difference to the output.
+
+**What it means for step 3.** Stray seeds do not add false positives by claiming far
+components. The FP a stray seed causes must come from the region it builds itself: a fired
+component, a relaxed region or a disk. That is what a seed gate removes and a claim cap cannot.
+
+Gate evaluation: rule 1 ✗ (+0.0000 < +0.003), rule 2 ✓ (CI lower bound 0.0000), rule 3 ✓
+(pooled IoU unchanged), rule 4 ✓ (no image moves), rule 5 ✓ (both directions +0.0000). Not
+ambiguous: the delta is below the +0.001…+0.003 band. → **REJECT**.
+
+**Next step:** 2.

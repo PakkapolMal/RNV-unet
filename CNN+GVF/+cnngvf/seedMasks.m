@@ -1,9 +1,15 @@
-function [masks, union, compId, claimDist] = seedMasks(BW, seeds, minArea, rule)
+function [masks, union, compId, claimDist] = seedMasks(BW, seeds, minArea, rule, maxDist)
 %CNNGVF.SEEDMASKS Split a mask into the one component each seed claims.
 %
 %  [masks, union] = cnngvf.seedMasks(BW, seeds, minArea)
 %  [masks, union] = cnngvf.seedMasks(BW, seeds, minArea, rule)
 %  [masks, union, compId, claimDist] = cnngvf.seedMasks(...)
+%  [...] = cnngvf.seedMasks(BW, seeds, minArea, rule, maxDist)
+%
+%  maxDist   : a seed on background claims only a component within maxDist px
+%              (seed pixel to its nearest pixel); beyond that it claims nothing.
+%              Default Inf, the historical behaviour. cnngvf.maskFromProb passes
+%              cfg.Post.claimMaxDist; the level-set path never does.
 %
 %  compId    : S x 1 label (bwconncomp order) of the claimed component, 0 = none
 %  claimDist : S x 1 0 when the seed is inside it, else the distance in px from
@@ -37,9 +43,10 @@ function [masks, union, compId, claimDist] = seedMasks(BW, seeds, minArea, rule)
 %                nearer another blob's centroid than its own, so the centroid
 %                rule hands it the wrong lesion.
 %
-%  Neither rule caps the distance - a seed always claims something if anything
-%  qualifies. Training drops seeds beyond cfg.Patch.seedTolerance, but that
-%  test reads ground truth and so cannot run at inference.
+%  Neither rule caps the distance by default - a seed always claims something if
+%  anything qualifies. Training drops seeds beyond cfg.Patch.seedTolerance, but
+%  that test reads ground truth and so cannot run at inference; maxDist is the
+%  ground-truth-free cap on the prediction side, measured in REFINE.md step 1.
 %
 %  Defaults to "centroid" when omitted, so a 3-argument call behaves exactly as
 %  it always has. Callers inside the pipeline pass cfg.Post.ClaimRule; the arm
@@ -57,6 +64,9 @@ function [masks, union, compId, claimDist] = seedMasks(BW, seeds, minArea, rule)
 
 if nargin < 4 || strlength(rule) == 0
     rule = "centroid";
+end
+if nargin < 5 || isempty(maxDist)
+    maxDist = Inf;
 end
 
 nSeeds    = size(seeds, 1);
@@ -105,9 +115,12 @@ for s = 1:nSeeds
             d(~ok) = inf;
             [~, k] = min(d);
         end
-        if nargout >= 4
+        if nargout >= 4 || isfinite(maxDist)
             [pr, pc] = ind2sub([h w], CC.PixelIdxList{k});
             dist = min(hypot(pr - r, pc - c));
+        end
+        if dist > maxDist
+            continue;   % too far: claims nothing, masks{s} stays [], claimDist Inf
         end
     end
 
