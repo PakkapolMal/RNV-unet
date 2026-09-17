@@ -2,7 +2,7 @@
 title: Refinement Plan — Measured Results
 description: Step-by-step record of REFINE.md on the 68-image combined domain, cached P, reduced pipeline + relax.
 kind: measurement-record
-status: in progress — steps 0–6 done
+status: complete — steps 0–8 done; nothing adopted beyond relax (step 0)
 dataset: DRAC22 + TUH (68)
 updated: 2026-09-17
 ---
@@ -15,6 +15,58 @@ each image out. Localization CSV mtimes in the cache metadata: DRAC22 `2026-08-3
 TUH `2026-08-31 23:01:37`.
 
 Machine-readable outputs: `CNN+GVF/result/DRACTUH_unclustered_threshold/refine/`.
+
+## Summary
+
+**Result: no inference-only change beat the reference.** The adopted pipeline is still reduced +
+relax (threshold `P > 0.5`, relax floor cross-fitted), **0.5061 cross-fitted IoU over 68 images**
+(0.5097 at the pre-registered floor 0.20). Every step reproduced the reference exactly with its
+flag off, and each flag stays in the code, off.
+
+| step | decision | ΔIoU at the decision (cross-fitted vs CUR) | leave-one-out ΔIoU in the final chain |
+|---|---|---|---|
+| 0 lock the reference, relax per arm | ADOPT | reference: 0.5097 fixed / 0.5061 cross-fitted | relax vs disk r=15: **+0.0370**, CI [+0.0035, +0.0741] |
+| 1 claim-distance cap | REJECT | +0.0000 (exactly; far claims were duplicates) | — |
+| 2 seed features | SKIP step 3 | best in-budget stray catch 25% | — |
+| 3 seed gate | SKIP | not built (human confirmed) | — |
+| 4 relax guard `relaxAlpha` | REJECT | −0.0053, CI [−0.0146, +0.0034] | — |
+| 5 FN coverage diagnostic | SKIP step 7 | 7.6% of Q5 FN outside patches: model-side | — |
+| 6 test-time augmentation d4 | REJECT | +0.0034, CI [−0.0088, +0.0134], `nv (4)` −0.30 | — |
+| 7 pseudo-seed patches | SKIP | not built | — |
+
+### Final chain (step 8), 68 images, cross-fitted
+
+| | IoU | median | F1 | prec | rec | pooled IoU | pooled rec |
+|---|---|---|---|---|---|---|---|
+| **final: reduced + relax, floor cross-fitted** | **0.5061** | 0.5371 | 0.6428 | 0.6025 | 0.7868 | 0.6053 | 0.8236 |
+
+- vs REF0 (floor 0.20 fixed): −0.0036, CI [−0.0139, +0.0068]. That is the selection cost, as in §9.
+- vs level set (0.4708): **+0.0353**, 30/36, CI [−0.0029, +0.0775].
+- Datasets: DRAC22 0.4683, TUH 0.5637. Folds: 0.4078, 0.6076, 0.5250, 0.4833, 0.5052.
+- Cross-device: choose on TUH → 0.15, DRAC22 0.4759 (+0.0182 vs disk); choose on DRAC22 → 0.20,
+  TUH 0.5561 (+0.0698 vs disk).
+- Size quintiles (IoU / Pred-GT): Q1 0.4004 / 2.42, Q2 0.4549 / 1.85, Q3 0.4773 / 1.60,
+  Q4 0.5826 / 1.43, Q5 0.6058 / 1.04.
+- `run_refine(0)` was run again on the final code: 0.5097, 0.5061 and level set 0.4708 all reproduce
+  to 5e-16 per image, so the level set is byte-identical.
+
+### Flagged for the human
+
+1. **Large-lesion loss is model-side (step 5).** 98% of Q5 ground truth lies inside a patch, and
+   76% of Q5 misses sit at P < 0.20. The lever is training (`P` on large lesions), not patch
+   placement.
+2. **Stray seeds are confident detections, not weak ones (step 2).** Only isolation (support /
+   `nnDist`, AUC 0.93) separates them, and it also marks single-detection true lesions. The human
+   declined a support-based gate. The remaining ~+0.03 oracle headroom belongs to the
+   localization stage.
+3. **Under relax, `tau` above 0.5 scores higher on the surface** (0.5157 at 0.55, 0.5189 at 0.60,
+   step 6 curve). `tau` is pre-registered at 0.5 and a joint `tau × relaxFloor` sweep is out of
+   scope, so this is recorded, not tuned.
+4. **Tiny lesions are unstable under thresholding** (`nv (4)`: a 0.8% shift in `P` halves IoU by
+   joining a neighbouring blob). Any small change to `P` will show large single-image swings on Q1.
+
+Step 8 did not change `defaults.m`: relax stays a per-arm, threshold-only setting (human
+decision before step 0), and nothing else was adopted.
 
 ## Decisions taken before step 0
 
@@ -565,3 +617,41 @@ rule 3 ✓ (pooled IoU 0.6123 ≥ 0.6053), rule 4 ✗ (`nv (4)` −0.301), rule 
 inside the noise the CI shows, it costs 8× inference, and it does not help on both devices.
 
 **Next step:** 8 (step 7 was skipped by step 5).
+
+---
+
+## Step 8 — Confirmation and handoff
+
+**Decision:** the final chain is REF0 (relax, floor cross-fitted). `defaults.m` unchanged: the arm
+already carries relax, and no later step was adopted.
+**Code:** `run_refine.m` step 8
+
+Level set asserted byte-identical once more: `run_refine(0)` on the final code reproduces 0.5097 /
+0.5061 / 0.4708, all to 5e-16 per image.
+
+| arm | IoU | median | F1 | prec | rec | pooled IoU | pooled rec | ΔIoU | ± | sign p | Wilcoxon p | 95% CI |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| REF0, 0.20 fixed | 0.5097 | 0.5299 | 0.6489 | 0.6311 | 0.7579 | 0.5896 | 0.7570 | | | | | |
+| **final, cross-fitted floor** | **0.5061** | 0.5371 | 0.6428 | 0.6025 | 0.7868 | 0.6053 | 0.8236 | −0.0036 vs REF0 | 15/18 | 0.728 | 0.497 | [−0.0139, +0.0068] |
+| level set | 0.4708 | 0.5026 | | | | | | | | | | |
+| final vs level set | | | | | | | | **+0.0353** | 30/36 | 0.539 | 0.838 | [−0.0029, +0.0775] |
+
+Step 8 has only the level set's per-image IoU (`step0/per_image_levelset.csv`), so its other
+columns are left blank.
+
+Leave-one-out attribution. Relax is the only adopted component; with it removed the chain is disk r=15:
+
+| chain | IoU | prec | rec | pooled IoU | ΔIoU | ± | 95% CI |
+|---|---|---|---|---|---|---|---|
+| final without relax (disk r=15) | 0.4691 | 0.6686 | 0.6653 | 0.4362 | | | |
+| final | 0.5061 | 0.6025 | 0.7868 | 0.6053 | **+0.0370** | 20/13 | [+0.0035, +0.0741] |
+
+The same +0.037 §9 found. Nothing else was adopted, so there is no stacking interaction to find.
+Movers (final vs disk): better `nv (21)` +0.520, `1115` +0.430, `nv (13)` +0.417, `nv (27)` +0.407,
+`319` +0.319; worse `nv (16)` −0.296, `573` −0.240, `nv (9)` −0.196, `144` −0.166, `098` −0.157.
+Cross-device on the whole chain: TUH → DRAC22 0.4759 (+0.0182 vs disk), DRAC22 → TUH 0.5561 (+0.0698).
+
+The expected-outcome table in REFINE.md put step 3 at 0.515–0.530 and step 6 at +0–0.015. Step 3
+never became buildable and step 6 landed at the edge of its band without clearing the CI rule. The
+final chain is 0.5061, far below the 0.56 leakage-audit threshold.
+

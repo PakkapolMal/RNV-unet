@@ -727,6 +727,30 @@ MATLAB loop with a warning, and `mex GVF.cpp` restores it.
 
 ## Known limits and next steps
 
+*Updated 2026-09-17 from [REFINE_RESULTS.md](REFINE_RESULTS.md). The bullets after this block are
+the earlier record and are kept as written; where they are superseded, this block says so.*
+
+- **The combined-domain number now exists.** Reduced pipeline + relax, floor cross-fitted:
+  **0.5061 IoU** over 68 images (0.5097 at floor 0.20). Level set on the same `P`: 0.4708.
+  The claiming rule is now `"boundary"` for this arm, which resolves the centroid bullet below.
+- **Inference-only post-processing is exhausted on this `P`, measured.** A claim-distance cap
+  changed nothing, a peak-relative relax guard cost −0.005, and d4 test-time augmentation gave
+  +0.003 with a CI crossing −0.009. None was adopted.
+- **The large-lesion gap is not patch coverage.** 98% of the largest-quintile ground truth lies
+  inside a 512 px patch, and 76% of its missed pixels have P < 0.20. The network sees these
+  lesions and under-responds. This answers the "patch size" and "tiled inference" bullets below:
+  the lever is training, not geometry.
+- **Stray localization points are confident, not weak.** 29 of 32 fire with P ≈ 1. Only
+  isolation separates them (AUC 0.93), and isolation also marks true lesions with a single
+  detection, so no `P`-based seed filter fits the budget. The ~+0.03 oracle headroom belongs to
+  the localization stage.
+- **Tiny lesions are threshold-unstable.** A 0.8% shift in `P` can halve IoU on a ~1 000 px lesion
+  by joining a neighbouring blob, so expect large single-image swings in the smallest quintile
+  from any change to `P`.
+- **Under relax, `tau` 0.55–0.60 scores higher on the surface** (up to 0.519) than the
+  pre-registered 0.5. Untested as a result.
+
+
 - **No combined-domain number exists yet.** `run_cv` on `DRACTUH_unclustered` produces the
   first one. Every figure in this document is DRAC22-only.
 - **The TUH acquisition overlay is still in the images.** Straight-line false positives are the

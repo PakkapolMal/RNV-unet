@@ -17,6 +17,7 @@ function run_refine(step, outputDir)
 %    5  where the large-lesion pixels are lost (diagnostic, GT in diag/ only)
 %    6  test-time augmentation: GPU, builds <outputDir>/probcache_tta/ (resumable),
 %       then scores CUR on both caches with relaxFloor cross-fitted on each
+%    8  confirmation of the adopted chain, with leave-one-out attribution
 %
 %  Ground truth is read HERE, never by the production functions it calls
 %  (cnngvf.maskFromProb and everything under it take P, seeds and cfg only).
@@ -51,6 +52,8 @@ switch step
         step5(cfg, D, Q, outDir, refineDir);
     case 6
         step6(cfg, D, Q, outDir, refineDir);
+    case 8
+        step8(cfg, D, Q, outDir, refineDir);
     otherwise
         error('run_refine:badStep', 'Step %d is not implemented yet.', step);
 end
@@ -790,6 +793,52 @@ writetable(CFt.chosen, fullfile(outDir, 'chosen_tta_relaxFloor.csv'));
 writetable(curve, fullfile(outDir, 'tau_curve.csv'));
 writetable(cdev, fullfile(outDir, 'crossdevice.csv'));
 writetable(struct2table(G), fullfile(outDir, 'gate.csv'));
+end
+
+
+% =========================================================================
+% STEP 8
+% =========================================================================
+
+function step8(cfg, D, Q, outDir, refineDir)
+% Confirmation of the adopted chain. Steps 1, 4, 6 were rejected and 3, 7
+% skipped, so the chain is REF0: threshold + relax, floor cross-fitted, original
+% cache. The level set was re-verified by run_refine(0) on this code just before.
+fid = fopen(fullfile(outDir, 'step8_summary.txt'), 'w');
+say = @(varargin) sayBoth(fid, varargin{:});
+say('Step 8 - confirmation | %s | %d images | original cache\n\n', cfg.Arm, D.n);
+assert(cfg.Post.fallbackMode == "relax" && cfg.Post.relaxAlpha == 0 && isinf(cfg.Post.claimMaxDist) ...
+    && (~isfield(cfg, 'Infer') || cfg.Infer.tta == "none"), 'the chain is not the adopted one');
+
+floors = [0.05 0.10 0.15 0.20 0.25 0.30]';
+grid = table(floors, 'VariableNames', {'relaxFloor'});
+CF = cnngvf.crossFit(grid, @(g) scoreAll(setField(cfg, 'relaxFloor', g.relaxFloor), D, false), D.fold, D.dset);
+final = CF.perImage;
+ref0 = CF.rows{floors == 0.20};
+disk = scoreAll(setField(cfg, 'fallbackMode', "disk"), D, false);   % relax removed
+ls = readtable(fullfile(refineDir, 'step0', 'per_image_levelset.csv'), 'TextType', 'string');
+assert(isequal(ls.Image, final.Image), 'level-set record is not paired');
+lsT = disk; lsT.Iou = ls.LevelsetIou;       % IoU only; the other columns are not level-set values
+
+say('Final chain vs REF0 (relax 0.20 fixed)\n');
+[s1, t1] = reportArms(say, {"REF0, 0.20 fixed", ref0; "final, cross-fitted floor", final}, ref0, Q);
+say('\nFinal chain vs the level set (0.4708). Only the IoU columns of the level-set row are real.\n');
+[~, t2] = reportArms(say, {"level set", lsT; "final, cross-fitted floor", final}, lsT, Q);
+say('\nLeave-one-out attribution (the only adopted component is relax, step 0)\n');
+[s3, t3] = reportArms(say, {"final without relax (disk r15)", disk; "final", final}, disk, Q);
+say('\nChosen floor per fold: %s\n', mat2str(floors(CF.chosen.GridRow)'));
+for k = 1:height(CF.crossDevice)
+    te = D.dset == CF.crossDevice.Test(k);
+    say('Cross-device: choose on %s -> %.2f, score %s: %.4f (disk %.4f, %+.4f)\n', CF.crossDevice.Train(k), ...
+        floors(CF.crossDevice.GridRow(k)), CF.crossDevice.Test(k), CF.crossDevice.TestIou(k), ...
+        mean(disk.Iou(te)), CF.crossDevice.TestIou(k) - mean(disk.Iou(te)));
+end
+r = cnngvf.refineScore(final, Q);
+say('Per fold:%s\n', sprintf(' %.4f', r{1, startsWith(r.Properties.VariableNames, 'Iou_fold')}));
+fclose(fid);
+writetable([s1; s3], fullfile(outDir, 'summary.csv'));
+writetable([t1; t2; t3], fullfile(outDir, 'stats.csv'));
+writetable(final, fullfile(outDir, 'per_image_final.csv'));
 end
 
 
