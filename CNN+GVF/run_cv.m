@@ -104,8 +104,14 @@ fprintf('Points   : %s\n', cfg.Points);
 fprintf('Output   : %s\n\n', cvRoot);
 disp(groupsummary(foldInfo, {'Fold', 'Dataset'}));
 
+runFolds = 1:k;
+if ~isempty(cfg.CV.folds)
+    runFolds = cfg.CV.folds;
+    fprintf('Running fold(s) %s of %d only (cfg.CV.folds).\n', mat2str(runFolds), k);
+end
+
 tAll = tic;
-for f = 1:k
+for f = runFolds
     test = folds{f};
     rest = setdiff(foldInfo.Image, test, 'stable');
 

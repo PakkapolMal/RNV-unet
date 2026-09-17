@@ -198,6 +198,18 @@ cfg.Patch.seedTolerance = 20;
 % (weight by detection count) is one flag away.
 cfg.Patch.balanceByImage = true;
 
+% Whether the network is told where the lesion is. true is every arm to date:
+% one patch per seed, centred on it, with the Gaussian heat-map as an input
+% channel, so P is 0 wherever no seed reaches.
+%
+% false (the "DRACTUH_seedless" arm, ../docs/SEEDLESS.md) removes the seed from
+% the network entirely. Training crops are drawn from the image with the whole
+% FilledGT as the label, and inference tiles the frame at Patch.tileStride, so P
+% is defined everywhere. Seeds still decide which components survive - they
+% enter only at cnngvf.seedMasks.
+cfg.Patch.seeded     = true;
+cfg.Patch.tileStride = 256;   % seedless inference: 512 tiles, 3 x 3 on a 1024 frame
+
 % --- U-Net -----------------------------------------------------------------
 cfg.Net.encoderDepth = 4;
 % 30, not 60. At patch 512 / miniBatch 2 an epoch is 240 iterations and takes
@@ -306,6 +318,11 @@ cfg.CV.ModelArm = "";
 % folds, and cnngvf.probCache re-checks the fold of every cached P before
 % anything scores it.
 cfg.CV.skipTrain = false;
+
+% Run only these folds (empty = all). For a pilot: train and score one fold,
+% decide, then resume the rest with skipTrain. The aggregate over a partial run
+% warns about the missing folds rather than pretending to cover the domain.
+cfg.CV.folds = [];
 
 % --- Post-processing -------------------------------------------------------
 cfg.Post.MinArea      = 500;

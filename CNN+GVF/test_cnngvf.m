@@ -24,6 +24,7 @@ testArms(cfg);
 testSeedTolerance(cfg);
 testSegGtNaming(cfg);
 testGpuMatchesCpu(cfg);
+testSeedless(cfg);
 
 fprintf('\nAll checks passed.\n');
 end
@@ -465,6 +466,75 @@ if ~isempty(missing)
 end
 
 fprintf('  segment gt naming         ok (%d clustered seeds all resolve)\n', numel(names));
+end
+
+
+function testSeedless(cfg)
+% ../docs/SEEDLESS.md. Every pre-existing arm must still build seeded patches;
+% seedless inference must cover the frame and never read the seeds; seedless
+% training crops must carry whole-image labels without a centre prior; and the
+% loss must stay finite on the all-background crops uniform sampling produces.
+for a = cnngvf.arm()
+    c = cnngvf.arm(cfg, a);
+    assert(c.Patch.seeded == (a ~= "DRACTUH_seedless"), 'arm %s has the wrong Patch.seeded', a);
+end
+s = cnngvf.arm(cfg, "DRACTUH_seedless");
+assert(s.Post.mode == "threshold" && s.Post.fallbackMode == "relax" && s.Post.relaxFloor == 0.20, ...
+    'seedless arm does not use the reduced pipeline with relax 0.20');
+assert(cnngvf.arm(s, "DRACTUH_unclustered").Patch.seeded, ...
+    'moving from the seedless arm back to a seeded one left Patch.seeded false');
+
+assert(isequal(cnngvf.tileOrigins(1024, cfg), [1 257 513]), 'tile grid is not 3 x 3 on 1024');
+
+% Inference: a stub network with a 1-channel input, CPU so the check is exact.
+p   = cfg.Patch.size;
+net = dlnetwork([imageInputLayer([p p 1], Normalization="none"), ...
+    convolution2dLayer(3, 2, Padding="same"), softmaxLayer]);
+c = s; c.UseGpu = false;
+rng(1);
+chans = rand(1024, 1024);
+P1 = cnngvf.inferProbMap(chans, [100 100], net, c);
+P2 = cnngvf.inferProbMap(chans, [900 40; 20 800; 512 512], net, c);
+P3 = cnngvf.inferProbMap(chans, zeros(0, 2), net, c);
+assert(isequal(size(P1), [1024 1024]), 'seedless P is %s', mat2str(size(P1)));
+assert(isequal(P1, P2, P3), 'seedless P depends on the seeds it was given');
+assert(all(P1 > 0, 'all'), 'seedless P has an uncovered pixel or a zero seam');
+
+% Training crops, on the real domain.
+tc = s; tc.Split.Val = tc.Split.Val(:);
+[dsTrain, dsVal, info] = cnngvf.prepareData(tc);
+assert(info.numChannels == 1 && ~info.seeded, 'seedless data builds %d channels', info.numChannels);
+reset(dsTrain);
+nPos = 0; nCentre = 0; n = 60;
+for k = 1:n
+    out = read(dsTrain);
+    if iscell(out{1}), out = out{1}; end
+    [X, T] = out{:};
+    assert(isequal(size(X, 1:3), [p p 1]) && isequal(size(T), [p p 2]), 'bad seedless sample size');
+    assert(all(T(:, :, 1) + T(:, :, 2) == 1, 'all'), 'seedless label is not one-hot');
+    if any(T(:, :, 2), 'all')
+        nPos = nPos + 1;
+        nCentre = nCentre + T(p / 2 + 1, p / 2 + 1, 2);
+    end
+end
+assert(nPos >= 0.3 * n, 'only %d of %d seedless crops hold any lesion', nPos, n);
+assert(nCentre < nPos, 'every positive crop has lesion at the centre - a positional prior');
+
+reset(dsVal);
+out = read(dsVal);
+if iscell(out{1}), out = out{1}; end
+assert(isequal(size(out{1}, 1:3), [p p 1]), 'seedless validation tile has the wrong size');
+nVal = 0;
+while hasdata(dsVal), read(dsVal); nVal = nVal + 1; end
+assert(nVal + 1 == 9 * numel(info.valImages), 'expected 9 validation tiles per image, got %d', nVal + 1);
+
+% The loss trainNet uses, on an all-background crop.
+Y = softmax(dlarray(randn(8, 8, 2, 1, 'single'), 'SSCB'));
+T = dlarray(single(cat(3, true(8), false(8))), 'SSCB');
+loss = extractdata(1 - mean(generalizedDice(Y, T), 'all'));
+assert(isfinite(loss), 'generalizedDice loss is not finite on an empty crop');
+
+fprintf('  seedless                  ok (%d/%d positive crops, %d at centre)\n', nPos, n, nCentre);
 end
 
 

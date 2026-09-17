@@ -17,17 +17,25 @@ function P = inferProbMap(chans, seeds, net, cfg)
 %  See also CNNGVF.SEEDPATCH, CNNGVF.SEGMENTIMAGE.
 
 p = cfg.Patch.size;
-n = size(seeds, 1);
 [h, w, ~] = size(chans);
 
 P = zeros(h, w);
-if n == 0
-    return;
-end
 
-% C+1: the channel stack plus the seed heat-map seedPatch appends. Derived,
-% not assumed, so dropping the vesselness channel needs no change here.
-nIn  = size(chans, 3) + 1;
+% Seeded: one patch per seed, C+1 channels (the heat-map seedPatch appends).
+% Seedless (cfg.Patch.seeded = false, ../docs/SEEDLESS.md): a fixed tile grid
+% over the whole frame, C channels, and `seeds` is never read - so P cannot
+% depend on the localization at all.
+if cfg.Patch.seeded
+    n   = size(seeds, 1);
+    nIn = size(chans, 3) + 1;
+    if n == 0
+        return;
+    end
+else
+    [R0, C0] = ndgrid(cnngvf.tileOrigins(h, cfg), cnngvf.tileOrigins(w, cfg));
+    n   = numel(R0);
+    nIn = size(chans, 3);
+end
 X    = zeros(p, p, nIn, n, 'single');
 rows = zeros(n, p);
 cols = zeros(n, p);
@@ -38,12 +46,19 @@ expected = net.Layers(1).InputSize(3);
 if expected ~= nIn
     error('cnngvf:inferProbMap:channelMismatch', ...
         ['The network expects %d input channels but this cfg builds %d.\n' ...
-         'cfg.Vessel.enabled is %d - it must match the setting the network ' ...
-         'was trained with.'], expected, nIn, cfg.Vessel.enabled);
+         'cfg.Vessel.enabled is %d and cfg.Patch.seeded is %d - both must ' ...
+         'match the settings the network was trained with.'], ...
+        expected, nIn, cfg.Vessel.enabled, cfg.Patch.seeded);
 end
 for s = 1:n
-    [X(:, :, :, s), rows(s, :), cols(s, :)] = ...
-        cnngvf.seedPatch(chans, seeds(s, :), seeds(s, :), cfg);
+    if cfg.Patch.seeded
+        [X(:, :, :, s), rows(s, :), cols(s, :)] = ...
+            cnngvf.seedPatch(chans, seeds(s, :), seeds(s, :), cfg);
+    else
+        rows(s, :) = R0(s):R0(s) + p - 1;
+        cols(s, :) = C0(s):C0(s) + p - 1;
+        X(:, :, :, s) = single(chans(rows(s, :), cols(s, :), :));
+    end
 end
 
 % Predict in chunks. One batch per image was fine for the clustered centres

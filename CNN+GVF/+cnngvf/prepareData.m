@@ -87,6 +87,7 @@ imgIdx = arrayfun(@(n) find(images == n, 1), names);
 % A seed on background cannot be labelled (training it against pure background
 % would teach the network to ignore its own heat-map), so it is dropped.
 segMasks = cell(numel(names), 1);
+gtFull   = cell(numel(images), 1);   % whole FilledGT per image, the seedless label
 onBackground = false(numel(names), 1);
 
 tol      = cfg.Patch.seedTolerance;
@@ -95,6 +96,7 @@ recovered = 0;
 for i = 1:numel(images)
     sel = find(names == images(i))';
     filled = rnv.loadMask(M.GtPath(i));
+    gtFull{i} = filled;
     CC = bwconncomp(filled);
     L  = labelmatrix(CC);
     [h, w] = size(filled);
@@ -196,8 +198,21 @@ else
     trainIdx = repmat(trainRows, cfg.Patch.perSeed, 1);
 end
 
-dsTrain = makeDatastore(trainIdx(:), imgIdx, seeds, chans, segMasks, cfg, true);
-dsVal   = makeDatastore(valIdx(:),   imgIdx, seeds, chans, segMasks, cfg, false);
+if cfg.Patch.seeded
+    dsTrain = makeDatastore(trainIdx(:), imgIdx, seeds, chans, segMasks, cfg, true);
+    dsVal   = makeDatastore(valIdx(:),   imgIdx, seeds, chans, segMasks, cfg, false);
+else
+    % Seedless (../docs/SEEDLESS.md). The seed-row budget above is kept only to
+    % size the epoch exactly as the seeded arm would; each entry is reduced to
+    % its IMAGE, and the crop position is drawn independently of every seed.
+    % Validation is the inference tile grid over each inner-validation image,
+    % so best-validation selection sees the geometry inference will use.
+    dsTrain = arrayDatastore(reshape(imgIdx(trainIdx), [], 1), 'OutputType', 'same');
+    dsTrain = transform(dsTrain, @(i) seedlessSample(i, chans, gtFull, cfg));
+    valTiles = seedlessTiles(find(isVal)', chans, cfg);
+    dsVal   = arrayDatastore(valTiles, 'OutputType', 'same', 'IterationDimension', 1);
+    dsVal   = transform(dsVal, @(t) seedlessTile(t, chans, gtFull, cfg));
+end
 
 info.trainImages    = images(~isVal)';
 info.valImages      = images(isVal)';
@@ -208,7 +223,8 @@ info.balanceByImage  = cfg.Patch.balanceByImage;
 
 % Channel stack plus the seed heat-map. trainNet sizes the network from this
 % rather than assuming 3, so cfg.Vessel.enabled needs no change there.
-info.numChannels = size(chans{1}, 3) + 1;
+info.numChannels = size(chans{1}, 3) + cfg.Patch.seeded;
+info.seeded      = cfg.Patch.seeded;
 
 % Per-dataset breakdown of the training set. A pooled domain hides which
 % dataset an epoch was actually spent on, and that is the first thing to check
@@ -270,14 +286,82 @@ inC = cols >= 1 & cols <= size(gt, 2);
 fg(inR, inC) = gt(rows(inR), cols(inC));
 
 if augment
-    % Dihedral group only. ../docs/spec.md warns that elastic warps distort
-    % the thin fronds this network exists to find.
-    if rand < 0.5, X = fliplr(X); fg = fliplr(fg); end
-    if rand < 0.5, X = flipud(X); fg = flipud(fg); end
-    r = randi(4) - 1;
-    if r > 0, X = rot90(X, r); fg = rot90(fg, r); end
+    [X, fg] = dihedral(X, fg);
 end
 
 T = single(cat(3, ~fg, fg));   % one-hot [background, RNV]
 out = {X, T};
+end
+
+
+function [X, fg] = dihedral(X, fg)
+% Dihedral group only. ../docs/spec.md warns that elastic warps distort the thin
+% fronds this network exists to find. The draw order is the original's, so the
+% seeded arms see the same augmentation stream as before.
+if rand < 0.5, X = fliplr(X); fg = fliplr(fg); end
+if rand < 0.5, X = flipud(X); fg = flipud(fg); end
+r = randi(4) - 1;
+if r > 0, X = rot90(X, r); fg = rot90(fg, r); end
+end
+
+
+% =========================================================================
+% SEEDLESS
+% =========================================================================
+
+function out = seedlessSample(i, chans, gtFull, cfg)
+% One training crop from image i, with no seed anywhere in it.
+%
+% A fair coin between a uniform crop and a positive one. Uniform crops are
+% mostly background and teach what normal vasculature looks like, which is
+% where the false-positive risk of dropping the seed lives. Positive crops fix
+% the class imbalance, and the lesion pixel lands at a RANDOM position in the
+% crop rather than the centre - centring would re-teach the positional prior
+% this arm exists to remove.
+if iscell(i), i = i{1}; end
+C  = chans{i};
+gt = gtFull{i};
+p  = cfg.Patch.size;
+[h, w, ~] = size(C);
+assert(h >= p && w >= p, 'cnngvf:prepareData:smallImage', ...
+    'Image %d is %dx%d, smaller than the %d px patch.', i, h, w, p);
+
+fgIdx = find(gt);
+if rand < 0.5 || isempty(fgIdx)
+    r0 = randi(h - p + 1);
+    c0 = randi(w - p + 1);
+else
+    [pr, pc] = ind2sub([h w], fgIdx(randi(numel(fgIdx))));
+    r0 = min(max(pr - randi(p) + 1, 1), h - p + 1);   % pr stays inside the crop
+    c0 = min(max(pc - randi(p) + 1, 1), w - p + 1);
+end
+
+X  = single(C(r0:r0 + p - 1, c0:c0 + p - 1, :));
+fg = gt(r0:r0 + p - 1, c0:c0 + p - 1);
+[X, fg] = dihedral(X, fg);
+
+out = {X, single(cat(3, ~fg, fg))};
+end
+
+
+function tiles = seedlessTiles(imgs, chans, cfg)
+% [image, r0, c0] for every inference tile of every listed image.
+tiles = zeros(0, 3);
+for i = imgs
+    [h, w, ~] = size(chans{i});
+    [R, Cc] = ndgrid(cnngvf.tileOrigins(h, cfg), cnngvf.tileOrigins(w, cfg));
+    tiles = [tiles; repmat(i, numel(R), 1), R(:), Cc(:)]; %#ok<AGROW>
+end
+end
+
+
+function out = seedlessTile(t, chans, gtFull, cfg)
+% One deterministic validation tile. No augmentation.
+if iscell(t), t = t{1}; end
+p  = cfg.Patch.size;
+r  = t(2):t(2) + p - 1;
+c  = t(3):t(3) + p - 1;
+X  = single(chans{t(1)}(r, c, :));
+fg = gtFull{t(1)}(r, c);
+out = {X, single(cat(3, ~fg, fg))};
 end

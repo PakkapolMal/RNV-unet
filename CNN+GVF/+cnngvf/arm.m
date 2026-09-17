@@ -61,6 +61,16 @@ cfg.Patch.perSeed  = a.perSeed;
 cfg.Patch.seedTolerance = a.seedTolerance;
 cfg.Post.ClaimRule = a.claimRule;
 
+% Optional per-arm fields, so the arms that predate them need no edit. seeded is
+% always written, so moving from a seedless arm back to a seeded one cannot
+% leave the network input stale.
+cfg.Patch.seeded = ~isfield(a, 'seeded') || a.seeded;
+if isfield(a, 'post')
+    for f = string(fieldnames(a.post))'
+        cfg.Post.(f) = a.post.(f);
+    end
+end
+
 % Which arm's cross-validation networks this arm scores with. Normally its own.
 % "unclustered_boundary" borrows "unclustered"'s, because it differs from it
 % only in post-processing - no trainable parameter is involved, so retraining
@@ -157,4 +167,20 @@ t.DRACTUH_unclustered = struct( ...
     'denoise', [], 'vessel', false, 'perSeed', 4, 'seedTolerance', 20, ...
     'claimRule', "boundary", 'cvModelArm', "", ...
     'model', 'rnvNet_DRACTUH_unclustered.mat', 'output', 'DRACTUH_unclustered');
+
+% "DRACTUH_unclustered" with the seed taken OUT of the network (../docs/SEEDLESS.md).
+% Same domain, points, channels, folds and training recipe; P comes from 512
+% tiles over the whole frame instead of seed-centred patches, and seeds enter
+% only at claiming. Post-processing is the reduced pipeline with the relax
+% fallback at its confirmed floor, so it pairs against REDUCE_RESULTS.md section 9.
+%
+% perSeed and seedTolerance still matter: they size the epoch exactly as the
+% seeded arm's would, so the two spend the same compute per fold.
+t.DRACTUH_seedless = struct( ...
+    'datasets', ["DRAC22", "TUH"], 'points', "unclustered", 'evalMode', "image", ...
+    'denoise', [], 'vessel', false, 'perSeed', 4, 'seedTolerance', 20, ...
+    'claimRule', "boundary", 'cvModelArm', "", ...
+    'model', 'rnvNet_DRACTUH_seedless.mat', 'output', 'DRACTUH_seedless', ...
+    'seeded', false, ...
+    'post', struct('mode', "threshold", 'fallbackMode', "relax", 'relaxFloor', 0.20));
 end

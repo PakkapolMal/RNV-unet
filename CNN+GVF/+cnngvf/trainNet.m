@@ -30,10 +30,14 @@ if cfg.UseGpu
     gpuDevice(1);
 end
 
+chanDesc = "intensity";
 if cfg.Vessel.enabled
-    chanDesc = "intensity + vesselness + seed heat-map";
+    chanDesc = chanDesc + " + vesselness";
+end
+if cfg.Patch.seeded
+    chanDesc = chanDesc + " + seed heat-map";
 else
-    chanDesc = "intensity + seed heat-map";
+    chanDesc = chanDesc + ", seedless tiles";
 end
 fprintf('Input channels : %d (%s)\n', info.numChannels, chanDesc);
 if isempty(cfg.Denoise)
