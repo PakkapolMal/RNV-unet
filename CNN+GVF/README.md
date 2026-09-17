@@ -13,6 +13,21 @@ Vocabulary: [../docs/CONTEXT.md](../docs/CONTEXT.md). Theory:
 > domain-independent — but the domain is now 68 images, and no combined figure has been
 > measured. Read UNCLUSTERED.md for the current picture.
 
+> **Branches and the best GVF + DRLSE version (2026-09-17).**
+>
+> - **`master`** (this branch) holds the GVF + DRLSE level-set pipeline at its best measured
+>   version: arm `DRACTUH_unclustered`, disk fallback, `imclose`, and **seeds claiming by nearest
+>   boundary** (`cfg.Post.ClaimRule = "boundary"`, commit `a9b7abb`). 5-fold cross-validation
+>   over 68 images (DRAC22 41 + TUH 27): **IoU 0.4708, F1 0.6137** (median IoU 0.5026, precision
+>   0.6981, recall 0.6432). It is the best level-set cell for both IoU and F1 on both domains
+>   (68 and 41 images). Verified on this branch's code against the recorded per-image scores, to
+>   5e-16.
+>   The combined-domain figure supersedes the "no combined figure" line above. Its full record is
+>   `docs/REDUCE_RESULTS.md` §5–6 on `reduce-pipeline`.
+> - **`reduce-pipeline`** replaces the level set with a threshold on P plus a relaxed seed
+>   fallback: IoU 0.5097 at floor 0.20, **0.5061 cross-fitted**, the best measured overall.
+> - **`reduce-refine`** holds the inference-only refinement experiments (none adopted).
+
 ```
 +cnngvf/                package - one stage per file, all take a cfg struct
   defaults.m            config, dataset registry, toolbox guard, GPU flag
