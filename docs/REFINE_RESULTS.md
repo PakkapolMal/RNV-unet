@@ -2,7 +2,7 @@
 title: Refinement Plan — Measured Results
 description: Step-by-step record of REFINE.md on the 68-image combined domain, cached P, reduced pipeline + relax.
 kind: measurement-record
-status: in progress — steps 0–5 done
+status: in progress — steps 0–6 done
 dataset: DRAC22 + TUH (68)
 updated: 2026-09-17
 ---
@@ -464,3 +464,104 @@ has no seed nearby, the orange one lies inside a window at low `P`, and the two 
 belong to its two stray seeds (step 2).
 
 **Next step:** 6 (TTA, GPU). Step 8 follows, since step 7 is skipped.
+
+---
+
+## Step 6 — Test-time augmentation (GPU, no retraining)
+
+**Prediction written before running:** ΔIoU 0 to +0.015. `P` becomes smoother and less extreme,
+so the best `tau` / `relaxFloor` may shift. That is why they are fitted again here. *(Only
+`relaxFloor` is tuned in CUR; steps 1, 3 and 4 adopted nothing, so it is the only parameter to
+fit again on each cache.)*
+
+**Decision:** REJECT (flag stays in the code, `cfg.Infer.tta = "none"`; the TTA cache is kept)
+**Config delta:** `cfg.Infer.tta = "d4"`. The 8 dihedral transforms, applied to both channels
+together, predicted, inverse-transformed and averaged as probabilities per patch before the
+raised-cosine stitch.
+**Code:** new `+cnngvf/d4.m`; `+cnngvf/inferProbMap.m` (TTA, optional variance output `V`,
+prediction loop moved to a local function); `probCache.m` (optional `V`, stored single);
+`defaults.m` (`Infer.tta`); `run_refine.m` step 6 (plus `seedTable` / `aucTable` pulled out of
+step 2); `test_cnngvf.m`
+
+### Tests, all before any GPU run
+
+1. `"none"` re-inferred for `458.png` (fold 3) vs the cached `P`: **max |ΔP| = 0**, bit-exact on
+   the GPU. Run by `run_refine(6)` before it infers anything.
+2. For every transform, the heat-map argmax lands on the image-channel marker placed at an
+   off-centre seed (catches a transposed `[cx cy]`).
+3. `inverse(transform(X)) == X` for all 8, on an array with no symmetry; the 8 are distinct.
+4. `"identity"` (the TTA path, 1-element group) reproduces `"none"` exactly through
+   `inferProbMap` with a real network.
+
+`test_cnngvf`: 14 checks pass.
+
+TTA cache: `result/DRACTUH_unclustered_threshold/probcache_tta/`, 68 images, **380 s** on the
+RTX 5050 (8× inference). Each file carries the original metadata plus `tta = "d4"`, the fold
+network path and `V`, and passes the fold leakage guard on read. The original cross-fit still
+reproduces 0.5061.
+
+### Headline, `relaxFloor` cross-fitted separately on each cache
+
+| arm | IoU | median | F1 | prec | rec | pooled IoU | pooled rec | ΔIoU vs CUR | ± | sign p | Wilcoxon p | 95% CI |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| CUR, cross-fitted floor | 0.5061 | 0.5371 | 0.6428 | 0.6025 | 0.7868 | 0.6053 | 0.8236 | — | | | | |
+| **TTA, cross-fitted floor** | **0.5095** | 0.5351 | 0.6449 | 0.6007 | 0.7945 | 0.6123 | 0.8244 | **+0.0034** | 42/24 | 0.036 | 0.009 | **[−0.0088, +0.0134]** |
+| REF0, 0.20 fixed | 0.5097 | 0.5299 | 0.6489 | 0.6311 | 0.7579 | 0.5896 | 0.7570 | | | | | |
+| TTA, 0.20 fixed | 0.5102 | 0.5344 | 0.6482 | 0.6287 | 0.7630 | 0.5929 | 0.7555 | +0.0005 vs REF0 | 39/27 | 0.175 | 0.060 | [−0.0114, +0.0099] |
+
+(sign-test `nchoosek` warns about exactness past ~57 non-tied images; relative error 2.2e-16.)
+
+Chosen floor per fold: identical on both caches, 0.10 / 0.15 / 0.10 / 0.15 / 0.15. TTA did not
+move the floor.
+Cross-device: choose on TUH → 0.15 on both, DRAC22 TTA 0.4825 vs 0.4759 (+0.0066); choose on
+DRAC22 → 0.20 on both, TUH TTA 0.5505 vs 0.5561 (**−0.0057**).
+Dataset breakout (cross-fitted): DRAC22 0.4683 → 0.4769 (+0.0086), TUH 0.5637 → 0.5591 (−0.0046).
+
+| quintile, IoU / Pred-GT | Q1 | Q2 | Q3 | Q4 | Q5 |
+|---|---|---|---|---|---|
+| CUR, cross-fitted | 0.4004 / 2.42 | 0.4549 / 1.85 | 0.4773 / 1.60 | 0.5826 / 1.43 | 0.6058 / 1.04 |
+| TTA, cross-fitted | 0.3816 / 2.48 | 0.4637 / 1.83 | 0.4825 / 1.60 | 0.5994 / 1.46 | 0.6093 / 1.01 |
+
+Movers vs CUR cross-fitted: better `1116` +0.171, `230` +0.070, `nv (9)` +0.060, `576` +0.044,
+`517` +0.039; worse **`nv (4)` −0.301**, `193` −0.062, `nv (27)` −0.055, `nv (24)` −0.032,
+`559` −0.030.
+
+**`nv (4).png` was checked as a possible bug** (plan: moves above 0.05 are suspect). It is the
+domain's smallest lesion (1 106 px, Q1). Its only seed fires at P = 1.000 on both caches, and
+TTA changes the image's `P > 0.5` pixel count by 0.8% (9 409 → 9 484). Near the lesion that
+small shift joins a neighbouring blob into the claimed component (1 917 → 4 061 px, recall 1.0
+both times), so IoU halves. This is a real sensitivity of thresholding on tiny lesions, not a
+TTA defect.
+
+### Curves (full domain, not results)
+
+| relaxFloor | 0.05 | 0.10 | 0.15 | 0.20 | 0.25 | 0.30 |
+|---|---|---|---|---|---|---|
+| original | 0.4863 | 0.5101 | 0.5124 | 0.5097 | 0.5012 | 0.4909 |
+| TTA | 0.4822 | 0.5118 | 0.5143 | 0.5102 | 0.5042 | 0.4938 |
+
+| tau (relax 0.20) | 0.30 | 0.35 | 0.40 | 0.45 | 0.50 | 0.55 | 0.60 | 0.65 |
+|---|---|---|---|---|---|---|---|---|
+| original | 0.4770 | 0.4851 | 0.4951 | 0.5019 | 0.5097 | 0.5157 | 0.5189 | 0.5182 |
+| TTA | 0.4766 | 0.4833 | 0.4926 | 0.5017 | 0.5102 | 0.5108 | 0.5148 | 0.5177 |
+
+TTA moves the surface up by at most ~0.003 and leaves its shape unchanged. The predicted
+"smoother, less extreme `P`" did not happen: mean |P_TTA − P| per image is 0.0041 (max 0.016),
+and the share of covered pixels at P > 0.9 or 0 < P < 0.1 is 0.344 → 0.343. The network is
+already nearly invariant to these transforms, so there is little for averaging to fix. (Under
+relax, `tau` above 0.5 scores higher on both caches; `tau` is pre-registered and is not tuned
+here, since a joint sweep is out of scope.)
+
+### Separability on TTA `P`, plus the TTA variance feature
+
+AUCs are essentially unchanged (support_R100 0.939, nnDist 0.929, peakP_r32 0.578). The new
+**`ttaVar_r16` (mean across-transform variance in a 16 px disk) has AUC 0.532**: no signal.
+Best in-budget stray catch: pre-registered forms 25% (unchanged); with the variance feature 34%.
+That is +9 points, under the +15 needed to ask about re-running step 3.
+
+Gate evaluation: rule 1 ✓ (+0.0034 ≥ +0.003), rule 2 ✗ (CI lower bound −0.0088 < −0.005),
+rule 3 ✓ (pooled IoU 0.6123 ≥ 0.6053), rule 4 ✗ (`nv (4)` −0.301), rule 5 ✗ (TUH direction
+−0.0057). Not ambiguous: rule 2 fails. → **REJECT**. Consistent with the numbers: +0.0034 is
+inside the noise the CI shows, it costs 8× inference, and it does not help on both devices.
+
+**Next step:** 8 (step 7 was skipped by step 5).

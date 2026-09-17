@@ -1,7 +1,8 @@
-function out = probCache(action, cacheDir, imgName, P, meta)
+function out = probCache(action, cacheDir, imgName, P, meta, V)
 %CNNGVF.PROBCACHE Persist the CNN probability map so variants cost seconds.
 %
 %  cnngvf.probCache("write", dir, imgName, P, meta)
+%  cnngvf.probCache("write", dir, imgName, P, meta, V)   % V: TTA variance, stored single
 %  [P, meta] = cnngvf.probCache("read", dir, imgName, cfg)
 %  names     = cnngvf.probCache("list", dir)
 %
@@ -34,7 +35,8 @@ function out = probCache(action, cacheDir, imgName, P, meta)
 
 switch string(action)
     case "write"
-        out = writeOne(cacheDir, imgName, P, meta);
+        if nargin < 6, V = []; end
+        out = writeOne(cacheDir, imgName, P, meta, V);
 
     case "read"
         % The 4th positional argument is cfg on a read - it is what the leakage
@@ -57,7 +59,7 @@ end
 % LOCAL FUNCTIONS
 % =========================================================================
 
-function path = writeOne(cacheDir, imgName, P, meta)
+function path = writeOne(cacheDir, imgName, P, meta, V)
 if ~exist(cacheDir, 'dir')
     mkdir(cacheDir);
 end
@@ -69,7 +71,12 @@ P = single(P);
 meta.image = string(imgName);
 meta.saved = datetime('now', 'Format', 'yyyy-MM-dd HH:mm:ss');
 
-save(path, 'P', 'meta', '-v7.3');
+if isempty(V)
+    save(path, 'P', 'meta', '-v7.3');
+else
+    V = single(V);
+    save(path, 'P', 'meta', 'V', '-v7.3');
+end
 end
 
 
@@ -83,7 +90,7 @@ if ~isfile(path)
         imgName, cacheDir);
 end
 
-s = load(path, 'P', 'meta');
+s = load(path);                     % P, meta, and V when a TTA cache wrote one
 P    = s.P;
 meta = s.meta;
 

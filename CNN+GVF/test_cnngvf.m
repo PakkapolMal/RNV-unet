@@ -20,6 +20,7 @@ testPostModes(cfg);
 testSeedComponents(cfg);
 testRefineTrace(cfg);
 testRefineInfra();
+testTta(cfg);
 testProbCache(cfg);
 testDomain(cfg);
 testArms(cfg);
@@ -419,6 +420,58 @@ assert(max(abs(plain.perImage.Iou - (base.Iou + 0.0005))) < 1e-12, 'crossFit sco
 assert(height(plain.surface) == 2 && height(plain.crossDevice) == 2, 'crossFit surface/cross-device shape');
 
 fprintf('  refine infrastructure     ok (paired stats, cross-fit)\n');
+end
+
+
+function testTta(cfg)
+% ../docs/REFINE.md step 6, the tests that must pass before any GPU run.
+% (Test 1, "none" reproducing the cached P for 458.png, needs the data and a
+% fold network: run_refine(6) runs it before inferring anything.)
+
+% 3. inverse(transform(X)) == X for all 8, on an array with no symmetry.
+X = reshape(single(1:(6 * 6 * 2 * 3)), 6, 6, 2, 3);
+seen = zeros(8, numel(X));
+for t = 0:7
+    Y = cnngvf.d4(X, t);
+    assert(isequal(cnngvf.d4(Y, t, true), X), 'd4 inverse failed for t = %d', t);
+    seen(t + 1, :) = Y(:)';
+end
+assert(size(unique(seen, 'rows'), 1) == 8, 'the 8 transforms are not distinct');
+
+% 2. Both channels move together: in a real seed patch, the heat-map argmax
+% lands where the image-channel marker placed at the seed lands. An off-centre
+% seed, so a transposed [cx cy] cannot pass by symmetry.
+p = cfg.Patch.size;
+chans = zeros(700, 900, 1, 'single');
+seed = [430 260];                                   % [cx cy]
+chans(seed(2), seed(1)) = 1;
+Xp = cnngvf.seedPatch(chans, seed, seed + [37 -21], cfg);
+for t = 0:7
+    Yp = cnngvf.d4(Xp, t);
+    [~, iHeat] = max(reshape(Yp(:, :, 2), [], 1));
+    iMark = find(Yp(:, :, 1) == 1);
+    assert(isscalar(iMark) && iHeat == iMark, ...
+        'transform %d separated the seed heat-map from the seed pixel', t);
+end
+
+% 4. The TTA path with a 1-element group reproduces "none" exactly, through
+% inferProbMap with a real (tiny, random) network.
+c = cfg; c.UseGpu = false; c.Vessel.enabled = false;
+net = dlnetwork([imageInputLayer([p p 2], 'Normalization', 'none'), ...
+    convolution2dLayer(5, 2, 'Padding', 'same'), softmaxLayer]);
+img = rand(600, 640, 1, 'single');
+seeds = [100 120; 500 400; 320 300];
+c.Infer.tta = "none";
+[Pn, Vn] = cnngvf.inferProbMap(img, seeds, net, c);
+c.Infer.tta = "identity";
+Pi = cnngvf.inferProbMap(img, seeds, net, c);
+assert(isequal(Pn, Pi) && isempty(Vn), 'identity-only TTA does not reproduce "none" exactly');
+c.Infer.tta = "d4";
+[Pd, Vd] = cnngvf.inferProbMap(img, seeds, net, c);
+assert(isequal(size(Pd), size(Pn)) && all(Pd(:) >= 0 & Pd(:) <= 1) && all(Vd(:) >= 0) && any(Vd(:) > 0), ...
+    'd4 TTA returned an invalid P or variance');
+
+fprintf('  test-time augmentation    ok (d4 inverse, channels together, identity = none)\n');
 end
 
 

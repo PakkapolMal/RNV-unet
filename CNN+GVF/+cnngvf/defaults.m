@@ -308,6 +308,11 @@ cfg.CV.ModelArm = "";
 cfg.CV.skipTrain = false;
 
 % --- Post-processing -------------------------------------------------------
+% Test-time augmentation in cnngvf.inferProbMap: "none" (default), "d4" (the 8
+% dihedral transforms, probabilities averaged per patch) or "identity" (the TTA
+% path with one element, for testing). ../docs/REFINE.md step 6.
+cfg.Infer.tta = "none";
+
 cfg.Post.MinArea      = 500;
 cfg.Post.MorphElement = strel('disk', 2);
 

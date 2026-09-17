@@ -15,6 +15,8 @@ function run_refine(step, outputDir)
 %    2  seed features and the separability check (diagnostic, GT in diag/ only)
 %    4  relax guard, cfg.Post.relaxAlpha (step 3 was skipped on step 2's gate)
 %    5  where the large-lesion pixels are lost (diagnostic, GT in diag/ only)
+%    6  test-time augmentation: GPU, builds <outputDir>/probcache_tta/ (resumable),
+%       then scores CUR on both caches with relaxFloor cross-fitted on each
 %
 %  Ground truth is read HERE, never by the production functions it calls
 %  (cnngvf.maskFromProb and everything under it take P, seeds and cfg only).
@@ -47,6 +49,8 @@ switch step
         step4(cfg, D, Q, outDir, refineDir);
     case 5
         step5(cfg, D, Q, outDir, refineDir);
+    case 6
+        step6(cfg, D, Q, outDir, refineDir);
     otherwise
         error('run_refine:badStep', 'Step %d is not implemented yet.', step);
 end
@@ -265,20 +269,7 @@ say('Step 2 - seed features and separability | %s | %d images | stray = more tha
     cfg.Arm, D.n, tol);
 
 % ---- features (production-safe) and labels (GT) --------------------------
-parts = cell(D.n, 1);
-for i = 1:D.n
-    seeds = D.seeds{i};
-    F = cnngvf.seedFeatures(double(D.P{i}), seeds, cfg);
-    dist = bwdist(D.gt{i});
-    [h, w] = size(dist);
-    r = min(max(round(seeds(:, 2)), 1), h);
-    c = min(max(round(seeds(:, 1)), 1), w);
-    gtDist = dist(sub2ind([h w], r, c));
-    parts{i} = [table(repmat(D.images(i), size(seeds, 1), 1), repmat(D.dset(i), size(seeds, 1), 1), ...
-        (1:size(seeds, 1))', seeds(:, 1), seeds(:, 2), gtDist, gtDist > tol, ...
-        'VariableNames', {'image', 'dataset', 'seedIdx', 'cx', 'cy', 'gtDist', 'stray'}), F];
-end
-T = vertcat(parts{:});
+T = seedTable(cfg, D);
 diagDir = fullfile(refineDir, 'diag');
 if ~exist(diagDir, 'dir'), mkdir(diagDir); end
 writetable(T, fullfile(diagDir, 'step2_seed_features.csv'));
@@ -293,21 +284,7 @@ assert(height(T) == 874 && nStray == 32 && nImg == 23, 'run_refine:strayCounts',
 % ---- AUC per feature ------------------------------------------------------
 feats = ["fired", "peakP_r16", "peakP_r32", "meanP_r16", "support_R64", "support_R100", ...
     "support_R150", "nnDist", "regionArea", "regionMeanP", "distToFiredComp", "imageSeedCount"];
-say('\nAUC, stray vs true (oriented >= 0.5; "low" = stray seeds have LOWER values)\n');
-say('  %-16s  %-4s   all   DRAC22    TUH\n', 'feature', 'dir');
-A = table();
-for f = feats
-    x = double(T.(f));
-    a = aucOf(x, T.stray);
-    dirn = "high";
-    if a < 0.5, dirn = "low"; end
-    orient = @(v) max(v, 1 - v);
-    ad = aucOf(x(T.dataset == "DRAC22"), T.stray(T.dataset == "DRAC22"));
-    at = aucOf(x(T.dataset == "TUH"), T.stray(T.dataset == "TUH"));
-    if dirn == "low", ad = 1 - ad; at = 1 - at; end
-    say('  %-16s  %-4s  %.3f   %.3f   %.3f\n', f, dirn, orient(a), ad, at);
-    A = [A; table(f, dirn, orient(a), ad, at, 'VariableNames', {'Feature', 'Direction', 'AUC', 'AUC_DRAC22', 'AUC_TUH'})]; %#ok<AGROW>
-end
+A = aucTable(say, T, feats);
 writetable(A, fullfile(outDir, 'auc.csv'));
 
 % ---- candidate rules ------------------------------------------------------
@@ -368,6 +345,63 @@ end
 writetable(S, fullfile(diagDir, 'step2_stray_seeds.csv'));
 say('\n%.0f s\n', toc(t0));
 fclose(fid);
+end
+
+
+function T = seedTable(cfg, D)
+% Per-seed features (production-safe, cnngvf.seedFeatures) plus the GT label:
+% stray = more than Patch.seedTolerance px from FilledGT. D.V, when present
+% (a TTA cache), adds ttaVar_r16: mean across-transform variance in a 16 px disk.
+tol = cfg.Patch.seedTolerance;
+parts = cell(D.n, 1);
+for i = 1:D.n
+    seeds = D.seeds{i};
+    F = cnngvf.seedFeatures(double(D.P{i}), seeds, cfg);
+    dist = bwdist(D.gt{i});
+    [h, w] = size(dist);
+    r = min(max(round(seeds(:, 2)), 1), h);
+    c = min(max(round(seeds(:, 1)), 1), w);
+    gtDist = dist(sub2ind([h w], r, c));
+    if isfield(D, 'V') && ~isempty(D.V{i})
+        F.ttaVar_r16 = diskMeans(double(D.V{i}), r, c, 16);
+    end
+    parts{i} = [table(repmat(D.images(i), size(seeds, 1), 1), repmat(D.dset(i), size(seeds, 1), 1), ...
+        (1:size(seeds, 1))', seeds(:, 1), seeds(:, 2), gtDist, gtDist > tol, ...
+        'VariableNames', {'image', 'dataset', 'seedIdx', 'cx', 'cy', 'gtDist', 'stray'}), F];
+end
+T = vertcat(parts{:});
+end
+
+
+function v = diskMeans(M, r, c, rad)
+[h, w] = size(M);
+v = zeros(numel(r), 1);
+for s = 1:numel(r)
+    r0 = max(r(s) - rad, 1); r1 = min(r(s) + rad, h);
+    c0 = max(c(s) - rad, 1); c1 = min(c(s) + rad, w);
+    [cc, rr] = meshgrid(c0:c1, r0:r1);
+    sub = M(r0:r1, c0:c1);
+    v(s) = mean(sub((rr - r(s)).^2 + (cc - c(s)).^2 <= rad^2));
+end
+end
+
+
+function A = aucTable(say, T, feats)
+say('\nAUC, stray vs true (oriented >= 0.5; "low" = stray seeds have LOWER values)\n');
+say('  %-16s  %-4s   all   DRAC22    TUH\n', 'feature', 'dir');
+A = table();
+for f = feats
+    x = double(T.(f));
+    a = aucOf(x, T.stray);
+    dirn = "high";
+    if a < 0.5, dirn = "low"; end
+    orient = @(v) max(v, 1 - v);
+    ad = aucOf(x(T.dataset == "DRAC22"), T.stray(T.dataset == "DRAC22"));
+    at = aucOf(x(T.dataset == "TUH"), T.stray(T.dataset == "TUH"));
+    if dirn == "low", ad = 1 - ad; at = 1 - at; end
+    say('  %-16s  %-4s  %.3f   %.3f   %.3f\n', f, dirn, orient(a), ad, at);
+    A = [A; table(f, dirn, orient(a), ad, at, 'VariableNames', {'Feature', 'Direction', 'AUC', 'AUC_DRAC22', 'AUC_TUH'})]; %#ok<AGROW>
+end
 end
 
 
@@ -606,6 +640,167 @@ writetable(T, fullfile(outDir, 'per_image_buckets.csv'));
 end
 
 
+% =========================================================================
+% STEP 6
+% =========================================================================
+
+function step6(cfg, D, Q, outDir, refineDir)
+fid = fopen(fullfile(outDir, 'step6_summary.txt'), 'w');
+say = @(varargin) sayBoth(fid, varargin{:});
+t0 = tic;
+say('Step 6 - test-time augmentation (d4) | %s | %d images | device %s\n\n', cfg.Arm, D.n, cfg.GpuName);
+M = cnngvf.manifest(cfg);
+ttaSub = 'probcache_tta';
+ttaDir = fullfile(cfg.Paths.Output, ttaSub);
+
+% ---- test 1, before any TTA inference: "none" reproduces the cached P ------
+i = find(D.images == "458.png");
+net = foldNet(cfg, D.fold(i));
+[~, chans] = cnngvf.loadChannels(M.ImgPath(M.Name == D.images(i)), cfg);
+c = cfg; c.Infer.tta = "none";
+Pnone = single(cnngvf.inferProbMap(chans, D.seeds{i}, net, c));
+dNone = max(abs(Pnone(:) - D.P{i}(:)));
+say('Test 1: tta "none" re-inferred for 458.png (fold %d) vs cached P: max |dP| %.3g\n', D.fold(i), dNone);
+assert(isequal(Pnone, D.P{i}), 'run_refine:ttaNone', ...
+    'Re-inferring 458.png with tta "none" does not reproduce the cached P exactly (max |dP| %.3g). STOP and ask.', dNone);
+
+% ---- build the TTA cache, fold by fold, resumable -------------------------
+c.Infer.tta = "d4";
+tInfer = tic; nNew = 0;
+for f = 1:max(D.fold)
+    todo = find(D.fold == f & ~isfile(fullfile(ttaDir, erase(D.images, ".png") + ".mat")));
+    if isempty(todo), continue; end
+    [net, netPath] = foldNet(cfg, f);
+    for i = todo'
+        tImg = tic;
+        [~, chans] = cnngvf.loadChannels(M.ImgPath(M.Name == D.images(i)), cfg);
+        [P, V] = cnngvf.inferProbMap(chans, D.seeds{i}, net, c);
+        meta = D.meta{i};
+        meta.tta = "d4";
+        meta.netFile = string(netPath);
+        meta.source = "run_refine step 6";
+        cnngvf.probCache("write", ttaDir, D.images(i), P, meta, V);
+        nNew = nNew + 1;
+        fprintf('  tta fold %d %-12s %3d seeds  %5.1f s\n', f, D.images(i), size(D.seeds{i}, 1), toc(tImg));
+    end
+end
+say('TTA cache: %s | %d images inferred now, %.0f s\n\n', ttaDir, nNew, toc(tInfer));
+
+Dt = loadDomain(cfg, ttaSub);                           % leakage-guarded again
+assert(isequal(Dt.images, D.images) && isequal(Dt.fold, D.fold), 'TTA cache is not paired with the original');
+assert(all(cellfun(@(m) isfield(m, 'tta') && m.tta == "d4", Dt.meta)), 'a TTA cache file lacks meta.tta = "d4"');
+
+% ---- score CUR on both caches; relaxFloor cross-fitted on each ------------
+floors = [0.05 0.10 0.15 0.20 0.25 0.30]';
+grid = table(floors, 'VariableNames', {'relaxFloor'});
+CFo = cnngvf.crossFit(grid, @(g) scoreAll(setField(cfg, 'relaxFloor', g.relaxFloor), D, false), D.fold, D.dset);
+CFt = cnngvf.crossFit(grid, @(g) scoreAll(setField(cfg, 'relaxFloor', g.relaxFloor), Dt, false), Dt.fold, Dt.dset);
+fixO = CFo.rows{floors == 0.20};
+fixT = CFt.rows{floors == 0.20};
+XFo = CFo.perImage; XFt = CFt.perImage;
+say('Original cross-fit reproduced: %.4f (step 0: 0.5061)\n', mean(XFo.Iou));
+assert(abs(mean(XFo.Iou) - 0.5061) < 5e-5, 'original cross-fit no longer reproduces 0.5061');
+
+say('\nvs CUR cross-fitted (headline comparator)\n');
+[summary, stats] = reportArms(say, {"CUR, cross-fitted floor", XFo; "TTA, cross-fitted floor", XFt}, XFo, Q);
+say('\nvs REF0 (relax 0.20 fixed)\n');
+[summary2, stats2] = reportArms(say, {"REF0, 0.20 fixed", fixO; "TTA, 0.20 fixed", fixT; "TTA, cross-fitted floor", XFt}, fixO, Q);
+say('\nChosen floor per fold: original %s | TTA %s\n', mat2str(floors(CFo.chosen.GridRow)'), mat2str(floors(CFt.chosen.GridRow)'));
+
+% Cross-device: on each cache choose the floor on one device, score the other;
+% the delta is TTA's cross-device arm minus the original's.
+cdev = CFt.crossDevice;
+cdev.FloorTta = floors(CFt.crossDevice.GridRow);
+cdev.FloorOrig = floors(CFo.crossDevice.GridRow);
+cdev.dIoU = zeros(height(cdev), 1);
+for k = 1:height(cdev)
+    te = D.dset == cdev.Test(k);
+    cdev.dIoU(k) = mean(CFt.rows{CFt.crossDevice.GridRow(k)}.Iou(te) - CFo.rows{CFo.crossDevice.GridRow(k)}.Iou(te));
+    say('Cross-device: choose on %s, score %s: TTA %.2f -> %.4f | original %.2f -> %.4f | %+.4f\n', cdev.Train(k), ...
+        cdev.Test(k), cdev.FloorTta(k), CFt.crossDevice.TestIou(k), cdev.FloorOrig(k), CFo.crossDevice.TestIou(k), cdev.dIoU(k));
+end
+
+say('\nSurface, relaxFloor (full domain, NOT a result)\n  floor   original  TTA\n');
+for g = 1:height(grid)
+    say('  %.2f    %.4f    %.4f\n', floors(g), CFo.surface.MeanIou(g), CFt.surface.MeanIou(g));
+end
+
+say('\ntau sensitivity, relax 0.20 fixed (a curve, NOT a result)\n  tau    original  TTA\n');
+taus = 0.30:0.05:0.65;
+curve = table(taus', zeros(numel(taus), 1), zeros(numel(taus), 1), 'VariableNames', {'tau', 'Original', 'TTA'});
+for j = 1:numel(taus)
+    ct = cfg; ct.Post.tau = taus(j);
+    curve.Original(j) = mean(scoreAll(ct, D, false).Iou);
+    curve.TTA(j) = mean(scoreAll(ct, Dt, false).Iou);
+    say('  %.2f   %.4f    %.4f\n', taus(j), curve.Original(j), curve.TTA(j));
+end
+
+G = gate(say, XFt, XFo, cdev);
+
+% ---- P itself: how much TTA moved it ---------------------------------------
+dP = cellfun(@(a, b) mean(abs(double(a(:)) - double(b(:)))), Dt.P, D.P);
+ext = @(C) mean(cellfun(@(a) mean(a(:) > 0.9 | (a(:) < 0.1 & a(:) > 0)), C));
+say('\nP: mean |P_tta - P| per image %.4f (max %.4f) | share of covered pixels at P > 0.9 or 0 < P < 0.1: %.3f -> %.3f\n', ...
+    mean(dP), max(dP), ext(D.P), ext(Dt.P));
+
+% ---- step-2 separability on TTA P, plus the TTA variance feature ----------
+Tt = seedTable(cfg, Dt);
+writetable(Tt, fullfile(refineDir, 'diag', 'step6_seed_features_tta.csv'));
+feats = ["fired", "peakP_r16", "peakP_r32", "meanP_r16", "support_R64", "support_R100", ...
+    "support_R150", "nnDist", "regionArea", "regionMeanP", "distToFiredComp", "imageSeedCount", "ttaVar_r16"];
+say('\nOn TTA P');
+A = aucTable(say, Tt, feats);
+writetable(A, fullfile(outDir, 'auc_tta.csv'));
+oracle = oracleGain(cfg, Dt);
+budget = floor(0.02 * nnz(~Tt.stray));
+vq = sort(Tt.ttaVar_r16);
+rules = table();
+for k = [0 1 2 3 5]
+    for p0 = [0.05 0.10 0.20 0.30 0.50 0.70 0.90]
+        rules = [rules; ruleRow("support_R100<=k & peakP_r32<p0", k, p0, NaN, ...
+            Tt.support_R100 <= k & Tt.peakP_r32 < p0, Tt, oracle)]; %#ok<AGROW>
+        rules = [rules; ruleRow("~fired & support_R100<=k & peakP_r32<p0", k, p0, NaN, ...
+            ~Tt.fired & Tt.support_R100 <= k & Tt.peakP_r32 < p0, Tt, oracle)]; %#ok<AGROW>
+    end
+    for qv = [0.5 0.75 0.9 0.95]
+        v0 = vq(ceil(qv * numel(vq)));
+        rules = [rules; ruleRow("support_R100<=k & ttaVar_r16>v0 (v0 = var quantile p0)", k, qv, v0, ...
+            Tt.support_R100 <= k & Tt.ttaVar_r16 > v0, Tt, oracle)]; %#ok<AGROW>
+    end
+end
+writetable(rules, fullfile(outDir, 'rules_tta.csv'));
+ok = rules.TrueDropped <= budget & rules.SingleSeedOrphans == 0;
+catchPre = max([0; rules.StrayCaught(ok & ~contains(rules.Rule, "ttaVar"))]) / nnz(Tt.stray);
+catchVar = max([0; rules.StrayCaught(ok)]) / nnz(Tt.stray);
+say('\nBest in-budget stray catch on TTA P: pre-registered forms %.0f%% | with the variance feature %.0f%% (step 2: 25%%)\n', ...
+    100 * catchPre, 100 * catchVar);
+if catchVar - 0.25 >= 0.15
+    say('  Variance raises the best catch rate by >= 15 points: record and ASK whether to re-run step 3.\n');
+end
+
+say('\n%.0f s total\n', toc(t0));
+fclose(fid);
+writetable([summary; summary2], fullfile(outDir, 'summary.csv'));
+writetable([stats; stats2], fullfile(outDir, 'stats.csv'));
+writetable(fixT, fullfile(outDir, 'per_image_tta_fixed020.csv'));
+writetable(XFo, fullfile(outDir, 'per_image_orig_crossfit.csv'));
+writetable(XFt, fullfile(outDir, 'per_image_tta_crossfit.csv'));
+writetable(CFt.surface, fullfile(outDir, 'surface_tta_relaxFloor.csv'));
+writetable(CFt.chosen, fullfile(outDir, 'chosen_tta_relaxFloor.csv'));
+writetable(curve, fullfile(outDir, 'tau_curve.csv'));
+writetable(cdev, fullfile(outDir, 'crossdevice.csv'));
+writetable(struct2table(G), fullfile(outDir, 'gate.csv'));
+end
+
+
+function [net, path] = foldNet(cfg, f)
+% The network that held fold f out - the only one allowed to infer its images.
+path = fullfile(cfg.Paths.Main, 'models', 'cv', sprintf('%s_fold%d.mat', cfg.CV.ModelArm, f));
+s = load(path, 'net');
+net = s.net;
+end
+
+
 function writeOverlay(path, P, gt, pred, win, bucket)
 base = repmat(0.35 * P, 1, 1, 3);
 paint = @(img, m, rgb) img .* ~m + reshape(rgb, 1, 1, 3) .* m;
@@ -718,10 +913,14 @@ end
 % SHARED
 % =========================================================================
 
-function D = loadDomain(cfg)
+function D = loadDomain(cfg, cacheSub)
 % Everything every step needs, read once. Each cached P passes probCache's
-% leakage guard on read.
-cacheDir = fullfile(cfg.Paths.Output, 'cv', 'probcache');
+% leakage guard on read. cacheSub defaults to the original cv/probcache;
+% step 6 passes probcache_tta, which also carries V.
+if nargin < 2
+    cacheSub = fullfile('cv', 'probcache');
+end
+cacheDir = fullfile(cfg.Paths.Output, cacheSub);
 M = cnngvf.manifest(cfg);
 images = cnngvf.probCache("list", cacheDir);
 images = images(ismember(images, M.Name));
@@ -732,11 +931,14 @@ assert(n == 68 && numel(unique(images)) == 68, 'run_refine:domain', ...
 D.n = n; D.images = images;
 D.P = cell(n, 1); D.gt = cell(n, 1); D.seeds = cell(n, 1);
 D.fold = nan(n, 1); D.dset = strings(n, 1); D.gtPx = nan(n, 1);
+D.V = cell(n, 1); D.meta = cell(n, 1); D.cacheDir = cacheDir;
 stamps = strings(n, 1);
 for i = 1:n
     k = find(M.Name == images(i), 1);
     got = cnngvf.probCache("read", cacheDir, images(i), cfg);   % leakage-guarded
     D.P{i} = got.P;
+    D.meta{i} = got.meta;
+    if isfield(got, 'V'), D.V{i} = got.V; end
     D.fold(i) = got.meta.fold;
     D.dset(i) = M.Dataset(k);
     D.seeds{i} = seedRows(names == images(i), :);
