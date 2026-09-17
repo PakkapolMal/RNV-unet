@@ -1,0 +1,661 @@
+---
+title: Refinement Plan — Measured Results
+description: Step-by-step record of REFINE.md on the 68-image combined domain, cached P, reduced pipeline + relax.
+kind: measurement-record
+status: complete — steps 0–8 done; nothing adopted beyond relax (step 0)
+dataset: DRAC22 + TUH (68)
+updated: 2026-09-17
+---
+
+# Refinement Plan — Measured Results
+
+What [REFINE.md](REFINE.md) asked for, one section per step. Every number is 68 images
+(DRAC22 41, TUH 27), `EvalMode = "image"`, cross-validated through the fold network that held
+each image out. Localization CSV mtimes in the cache metadata: DRAC22 `2026-08-31 14:46:10`,
+TUH `2026-08-31 23:01:37`.
+
+Machine-readable outputs: `CNN+GVF/result/DRACTUH_unclustered_threshold/refine/`.
+
+**Branch note:** this record was merged into `reduce-pipeline` on its own. The code it describes
+(`run_refine.m`, `cnngvf.crossFit`, `seedFeatures`, `d4`, the `claimMaxDist` / `relaxAlpha` /
+`Infer.tta` flags, and relax set per arm) lives on branch `reduce-refine`.
+
+## Summary
+
+**Result: no inference-only change beat the reference.** The adopted pipeline is still reduced +
+relax (threshold `P > 0.5`, relax floor cross-fitted), **0.5061 cross-fitted IoU over 68 images**
+(0.5097 at the pre-registered floor 0.20). Every step reproduced the reference exactly with its
+flag off, and each flag stays in the code, off.
+
+| step | decision | ΔIoU at the decision (cross-fitted vs CUR) | leave-one-out ΔIoU in the final chain |
+|---|---|---|---|
+| 0 lock the reference, relax per arm | ADOPT | reference: 0.5097 fixed / 0.5061 cross-fitted | relax vs disk r=15: **+0.0370**, CI [+0.0035, +0.0741] |
+| 1 claim-distance cap | REJECT | +0.0000 (exactly; far claims were duplicates) | — |
+| 2 seed features | SKIP step 3 | best in-budget stray catch 25% | — |
+| 3 seed gate | SKIP | not built (human confirmed) | — |
+| 4 relax guard `relaxAlpha` | REJECT | −0.0053, CI [−0.0146, +0.0034] | — |
+| 5 FN coverage diagnostic | SKIP step 7 | 7.6% of Q5 FN outside patches: model-side | — |
+| 6 test-time augmentation d4 | REJECT | +0.0034, CI [−0.0088, +0.0134], `nv (4)` −0.30 | — |
+| 7 pseudo-seed patches | SKIP | not built | — |
+
+### Final chain (step 8), 68 images, cross-fitted
+
+| | IoU | median | F1 | prec | rec | pooled IoU | pooled rec |
+|---|---|---|---|---|---|---|---|
+| **final: reduced + relax, floor cross-fitted** | **0.5061** | 0.5371 | 0.6428 | 0.6025 | 0.7868 | 0.6053 | 0.8236 |
+
+- vs REF0 (floor 0.20 fixed): −0.0036, CI [−0.0139, +0.0068]. That is the selection cost, as in §9.
+- vs level set (0.4708): **+0.0353**, 30/36, CI [−0.0029, +0.0775].
+- Datasets: DRAC22 0.4683, TUH 0.5637. Folds: 0.4078, 0.6076, 0.5250, 0.4833, 0.5052.
+- Cross-device: choose on TUH → 0.15, DRAC22 0.4759 (+0.0182 vs disk); choose on DRAC22 → 0.20,
+  TUH 0.5561 (+0.0698 vs disk).
+- Size quintiles (IoU / Pred-GT): Q1 0.4004 / 2.42, Q2 0.4549 / 1.85, Q3 0.4773 / 1.60,
+  Q4 0.5826 / 1.43, Q5 0.6058 / 1.04.
+- `run_refine(0)` was run again on the final code: 0.5097, 0.5061 and level set 0.4708 all reproduce
+  to 5e-16 per image, so the level set is byte-identical.
+
+### Flagged for the human
+
+1. **Large-lesion loss is model-side (step 5).** 98% of Q5 ground truth lies inside a patch, and
+   76% of Q5 misses sit at P < 0.20. The lever is training (`P` on large lesions), not patch
+   placement.
+2. **Stray seeds are confident detections, not weak ones (step 2).** Only isolation (support /
+   `nnDist`, AUC 0.93) separates them, and it also marks single-detection true lesions. The human
+   declined a support-based gate. The remaining ~+0.03 oracle headroom belongs to the
+   localization stage.
+3. **Under relax, `tau` above 0.5 scores higher on the surface** (0.5157 at 0.55, 0.5189 at 0.60,
+   step 6 curve). `tau` is pre-registered at 0.5 and a joint `tau × relaxFloor` sweep is out of
+   scope, so this is recorded, not tuned.
+4. **Tiny lesions are unstable under thresholding** (`nv (4)`: a 0.8% shift in `P` halves IoU by
+   joining a neighbouring blob). Any small change to `P` will show large single-image swings on Q1.
+
+Step 8 did not change `defaults.m`: relax stays a per-arm, threshold-only setting (human
+decision before step 0), and nothing else was adopted.
+
+## Decisions taken before step 0
+
+REFINE.md disagreed with the code in two places. Both went to the human, who decided:
+
+1. **Relax is per-arm, not a global default.** `initPhi` calls `seedFallback`, so making
+   `fallbackMode = "relax"` the default in `defaults.m` would have moved the level-set arm.
+   `defaults.m` keeps `"disk"`; `cnngvf.arm` sets `relax` / `0.20` for `DRACTUH_unclustered`
+   only. Every runner applies the arm *before* setting `Post.mode`, so the arm cannot test the
+   mode itself: `initPhi` now always builds disks, which is what every level-set number on
+   record was measured with.
+   *Side effect:* a rerun of `run_ablate("DRACTUH_unclustered")` would now score its threshold
+   cells with relax rather than the disk recorded in REDUCE_RESULTS §6. Its level-set cells do
+   not move.
+2. **Paths.** The arm's outputs live in `result/DRACTUH_unclustered_threshold/`, not
+   `result/DRACTUH_unclustered/`. Every new script takes `outputDir` and defaults to that folder.
+
+## Deviations from REFINE.md
+
+1. **One runner, `run_refine(step, outputDir)`,** instead of a script per step. Every CPU step
+   loads the same 68 `P`, GT masks and seeds.
+2. **The leakage test points every GT path at a folder that does not exist** instead of making
+   the GT directory unreadable (Windows ACLs), and asserts the output is unchanged.
+3. **The trace has no `image` column inside `maskFromProb`,** which does not know the name;
+   `run_refine` prepends it.
+4. **Size quintiles are rank-based** (`ceil(rank·5/n)`, giving 13/14/13/14/14): `quantile` and
+   `prctile` are Statistics Toolbox. `PredGt_Q<k>` is the pooled ratio `ΣPredPx / ΣGtPx` in the
+   quintile, not a mean of per-image ratios.
+5. **Grid order encodes "most conservative".** `cnngvf.crossFit` takes the first row within
+   `tieTol` of the best, so each step lists its grid starting from the feature-off end.
+
+---
+
+## Step 0 — Lock the reference
+
+**Decision:** ADOPT (all verifications pass) → step 1
+**Config delta:** `DRACTUH_unclustered` arm: `Post.fallbackMode = "relax"`, `Post.relaxFloor = 0.20`
+(threshold mode only; `defaults.m` unchanged)
+**Code:** `+cnngvf/arm.m`, `initPhi.m`, `seedFallback.m`, `seedMasks.m`, `maskFromProb.m`,
+`writeSummary.m`; new `+cnngvf/crossFit.m`, `pairedStats.m`, `refineScore.m`, `run_refine.m`;
+`test_cnngvf.m`
+
+### How relax sets the threshold
+
+**(a) fixed floor, straight to it, in a window.** `+cnngvf/seedFallback.m`, `relaxFallback`,
+word for word:
+
+```matlab
+    comp = false(size(sub));
+    if sub(sr, sc) > floor_
+        comp = bwselect(sub > floor_, sc, sr, 8);
+    end
+
+    if nnz(comp) >= cfg.Post.MinArea
+        D(r0:r1, c0:c1) = D(r0:r1, c0:c1) | comp;
+    else
+        % P never gives a claimable component near this seed, even at the floor.
+        % Keep the recall floor rather than dropping the lesion.
+        D = D | cnngvf.seedDisks([h w], seeds(s, :), BW, cfg);
+    end
+```
+
+`sub` is `P` inside ±`relaxWindow` = 128 px of the seed. The seed's 8-connected component of
+`P > relaxFloor` becomes its region; a region under `MinArea` falls back to the disk. So step 4
+runs.
+
+### Verification
+
+| check | expected | reproduced | max per-image \|ΔIoU\| |
+|---|---|---|---|
+| relax 0.20, production `maskFromProb` | 0.5097 / 0.5299 / 0.6489 / 0.6311 / 0.7579 | 0.5097 / 0.5299 / 0.6489 / 0.6311 / 0.7579 | 5e-16 vs `confirm_per_image.csv` |
+| cross-fitted floor, `cnngvf.crossFit`, plain max | 0.5061 | 0.5061, chose 0.10 / 0.15 / 0.10 / 0.15 / 0.15 | 5e-16 |
+| level set, arm cfg with relax set | 0.4708 | 0.4708 | 5e-16 vs `ablate/per_image.csv` cell 1 |
+| `test_cnngvf` | 11 + new | 13 checks pass | |
+
+With the 0.001 tie-break (lowest floor first) the cross-fit chooses the same floors: 0.5061.
+Cross-device: choose on DRAC22 → 0.20, TUH 0.5561; choose on TUH → 0.15, DRAC22 0.4759
+(matches REDUCE_RESULTS §9).
+
+### REF0
+
+| arm | IoU | median | F1 | prec | rec | pooled IoU | pooled F1 | pooled prec | pooled rec |
+|---|---|---|---|---|---|---|---|---|---|
+| REF0: reduced + relax 0.20, fixed | 0.5097 | 0.5299 | 0.6489 | 0.6311 | 0.7579 | 0.5896 | 0.7418 | 0.7271 | 0.7570 |
+| REF0 cross-fitted floor | 0.5061 | | | | | | | | |
+
+Dataset breakout: DRAC22 0.4792, TUH 0.5561.
+Per fold: 0.4124, 0.6004, 0.5490, 0.4832, 0.5011.
+
+| quintile | n | GT px | IoU | Pred/GT (pooled) |
+|---|---|---|---|---|
+| Q1 | 13 | 601 – 4 052 | 0.4272 | 2.129 |
+| Q2 | 14 | 4 176 – 10 332 | 0.4582 | 1.691 |
+| Q3 | 13 | 10 645 – 22 281 | 0.4900 | 1.467 |
+| Q4 | 14 | 23 655 – 48 105 | 0.5897 | 1.323 |
+| Q5 | 14 | 50 314 – 432 533 | 0.5762 | 0.890 |
+
+Frozen to `refine/quintiles.mat` (and `.csv`).
+
+Pooled precision (0.727) is well above mean precision (0.631), and Q1–Q3 over-predict by
+1.5–2.1×. The precision problem is concentrated on small lesions, where a few hundred FP pixels
+cost a large share of per-image IoU. Under relax, Q5 Pred/GT is 0.89 (pooled), not the ~0.51
+REFINE.md step 5 quotes from earlier diagnostics. Those did not record the pipeline or the ratio
+definition, so the two are not directly comparable. Step 5 measures it again.
+
+### Trace (874 seeds)
+
+| | seeds |
+|---|---|
+| fired (`P > tau` at the seed) | 616 |
+| relaxed | 218 |
+| disk (not fired, relax found < `MinArea`) | 40 |
+| claimed nothing | 0 |
+| `claimDist > 0` | 7 |
+| `0 < claimDist ≤ 20` | 0 |
+| `20 < claimDist < Inf` | **7, on 5 images** |
+
+218 + 40 = 258 fallback seeds on 34 images, matching REDUCE_RESULTS §8.
+
+All seven far claimers are **fired** seeds whose own component is below `MinArea`. The fallback
+skips fired seeds, so they claim the nearest qualifying component at any distance. Relaxed and
+disk seeds always stand inside their own region:
+
+| image | seed | claimDist | claimed area |
+|---|---|---|---|
+| 1236.png | 8 | 31.4 | 14 226 |
+| 125.png | 5 | 98.5 | 6 762 |
+| 299.png | 2 | 110.6 | 1 301 |
+| 299.png | 3 | 585.7 | 1 301 |
+| 299.png | 4 | 672.1 | 1 301 |
+| 429.png | 5 | 38.0 | 4 031 |
+| 498.png | 2 | 42.5 | 11 894 |
+
+The mechanism is present, so step 1 is not a SKIP. Its ceiling is small: 7 seeds, 5 images.
+
+### Run summaries
+
+`writeSummary` recorded **no** `Post` settings before this step: not `Post.mode`, `tau`,
+`fallbackMode`, `relaxFloor` or `imclose`. It now writes the whole `Post` block, flattening
+nested structs and naming the strel, so every later flag is recorded automatically.
+
+**Next step:** 1.
+
+---
+
+## Step 1 — Cap the claim distance
+
+**Prediction written before running:** ΔIoU 0 to +0.010, all precision. Relax may already
+absorb most of it, because a missed seed builds its own relaxed region instead of claiming a
+far component. *(Added after step 0, before any step-1 scoring: the ceiling is small, since
+only 7 seeds on 5 images claim beyond 20 px, three of them on `299.png`, which has no seed
+near its lesion.)*
+
+**Decision:** REJECT (the effect is exactly zero; the flag stays in the code, default `Inf`)
+**Config delta:** `Post.claimMaxDist` ∈ {Inf, 128, 64, 32, 20, 10, 0}; CUR stays `Inf`
+**Code:** `+cnngvf/defaults.m`, `seedMasks.m` (5th argument `maxDist`), `maskFromProb.m`,
+`run_refine.m` (step 1, plus the shared report / gate helpers), `test_cnngvf.m`
+
+Flag off (`Inf`) reproduces step-0 REF0: max per-image |ΔIoU| 5e-16. The level set never
+receives the flag (`initPhi`, `segmentImage` call `seedMasks` without it); a test asserts it.
+
+| arm | IoU | median | F1 | prec | rec | pooled IoU | pooled rec | ΔIoU vs CUR | ± | sign p | Wilcoxon p | 95% CI |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| CUR = REF0 (`Inf`) | 0.5097 | 0.5299 | 0.6489 | 0.6311 | 0.7579 | 0.5896 | 0.7570 | — | | | | |
+| pre-registered 20 | 0.5097 | 0.5299 | 0.6489 | 0.6311 | 0.7579 | 0.5896 | 0.7570 | +0.0000 | 0/0 | 1 | 1 | [0, 0] |
+| **cross-fitted** | **0.5097** | 0.5299 | 0.6489 | 0.6311 | 0.7579 | 0.5896 | 0.7570 | **+0.0000** | 0/0 | 1 | 1 | [0, 0] |
+
+The comparison is against REF0 and CUR together, since they are the same configuration here.
+
+Cross-fitted chosen parameters per fold: `Inf` ×5. Every grid row ties exactly, and the tie-break
+picks the feature-off end.
+Cross-device: DRAC22→TUH `Inf`, +0.0000; TUH→DRAC22 `Inf`, +0.0000.
+Surface: every cap from 0 to `Inf` scores 0.5097 / prec 0.6311 / rec 0.7579 / pooled IoU 0.5896.
+Size quintiles and dataset breakout: identical to REF0.
+Movers: none.
+
+**Why it is exactly zero.** Each of the 7 far claims lands on a component that at least one
+other seed claims from inside it, so capping removes a duplicate claim and leaves the union
+unchanged:
+
+| image | far seed | claimDist | component also claimed from inside by seeds |
+|---|---|---|---|
+| 1236.png | 8 | 31.4 | 9–14 |
+| 125.png | 5 | 98.5 | 1, 3 |
+| 299.png | 2, 3, 4 | 110.6, 585.7, 672.1 | 1 |
+| 429.png | 5 | 38.0 | 1, 2 |
+| 498.png | 2 | 42.5 | 1, 5, 6 |
+
+Diagnostic (GT, `diag/step1_disconnected.csv`): of the 7 seeds a cap of 20 disconnects, 4 are
+stray (`125` seed 5, `299` seeds 2–4, all > 100 px from `FilledGT`) and 3 are true seeds within
+0 px of a lesion whose own `P` component fell under `MinArea`. Caps of 64 and 128 disconnect
+only stray seeds (4 and 2), but it makes no difference to the output.
+
+**What it means for step 3.** Stray seeds do not add false positives by claiming far
+components. The FP a stray seed causes must come from the region it builds itself: a fired
+component, a relaxed region or a disk. That is what a seed gate removes and a claim cap cannot.
+
+Gate evaluation: rule 1 ✗ (+0.0000 < +0.003), rule 2 ✓ (CI lower bound 0.0000), rule 3 ✓
+(pooled IoU unchanged), rule 4 ✓ (no image moves), rule 5 ✓ (both directions +0.0000). Not
+ambiguous: the delta is below the +0.001…+0.003 band. → **REJECT**.
+
+**Next step:** 2.
+
+---
+
+## Step 2 — Seed features and the separability check
+
+**Decision:** SKIP step 3 → step 4 (best in-budget catch rate 25%, below the 30% floor)
+**Prediction written before running:** `support` and `peakP` separate stray seeds from true ones
+with AUC ≥ 0.80. Stray seeds are more than 100 px from any lesion, and true lesions attract many
+detections.
+**Config delta:** none (diagnostic only)
+**Code:** new `+cnngvf/seedFeatures.m` (P, seeds, cfg only; a test asserts it ignores GT paths);
+`run_refine.m` step 2; `test_cnngvf.m`
+
+Counts check against REDUCE_RESULTS §10: **874 seeds, 842 near, 32 stray, on 23 images**. They match.
+
+### AUC per feature (stray vs true, oriented ≥ 0.5)
+
+| feature | stray seeds have | all 68 | DRAC22 | TUH |
+|---|---|---|---|---|
+| fired | higher | 0.588 | 0.581 | 0.459 |
+| peakP_r16 | higher | 0.610 | 0.585 | 0.584 |
+| peakP_r32 | higher | 0.571 | 0.547 | 0.580 |
+| meanP_r16 | higher | 0.592 | 0.549 | 0.551 |
+| support_R64 | lower | **0.914** | 0.880 | 0.875 |
+| support_R100 | lower | **0.939** | 0.935 | 0.864 |
+| support_R150 | lower | **0.910** | 0.930 | 0.735 |
+| nnDist | higher | **0.929** | 0.943 | 0.789 |
+| regionArea | lower | 0.834 | 0.849 | 0.548 |
+| regionMeanP | higher | 0.734 | 0.665 | 0.564 |
+| distToFiredComp | higher | 0.563 | 0.580 | 0.486 |
+| imageSeedCount | lower | 0.757 | 0.738 | 0.456 |
+
+**The prediction is half wrong.** Support does separate (AUC 0.91–0.94). `peakP` does not
+(0.57–0.61), and its direction is the opposite of what the plan assumed: **stray seeds sit on
+high P**. 29 of 32 stray seeds fired, most with `peakP_r32` = 1.00. A stray seed is a confident
+false detection with its own confident CNN response, not a weak one.
+
+### Candidate rules
+
+Budget: ≤ 16 true seeds dropped (2% of 842) and no single-seed image orphaned. Best in-budget
+rows (full grid in `step2/rules.csv`):
+
+| rule | k | p0 | d0 | stray caught | true dropped | images losing every seed | oracle-weighted ΔIoU |
+|---|---|---|---|---|---|---|---|
+| `support_R100<=k & peakP_r32<p0` | 0 | 0.9 | | **8/32** | 10 | 1 | +0.0029 |
+| `support_R100<=k & peakP_r32<p0` | 1 | 0.7 | | 5/32 | 10 | 0 | +0.0004 |
+| `support_R100<=k & peakP_r32<p0` | 0 | 0.7 | | 3/32 | 3 | 0 | +0.0004 |
+| `~fired & support_R100<=k & peakP_r32<p0` | 1 | 0.7 | | 2/32 | 10 | 0 | +0.0002 |
+| `~fired & distToFiredComp>d0` | | | any | ≤ 1 | | | ≤ +0.0002 |
+
+Oracle ceiling (every stray seed dropped, cached `P`, relax 0.20): **+0.0312**.
+Every rule containing `~fired` or `peakP < p0` works against the signal, because stray seeds
+are fired and high-P.
+
+### Diagnostic beyond the pre-registered forms (not a result, not used for the gate)
+
+Support alone, from `diag/step2_seed_features.csv`:
+
+| rule | stray caught | true dropped (images) | images losing every seed | single-seed images orphaned |
+|---|---|---|---|---|
+| `support_R100<=0` (= `nnDist>100`) | 27/32 | 38 (28) | 14 | 7 |
+| `support_R150<=0` (= `nnDist>150`) | 22/32 | 27 (22) | 12 | 7 |
+| `nnDist>200` | 19/32 | 23 (20) | 11 | 7 |
+| `nnDist>250` | 16/32 | 22 (19) | 10 | 7 |
+| `nnDist>300` | 10/32 | 21 (18) | 10 | 7 |
+
+Even support alone does not fit the budget. An isolated seed is either a stray detection or the
+only detection on a small lesion, and support cannot tell those apart. The ~20 isolated true
+seeds are exactly what a gate would delete, and each is the only seed on its lesion, so dropping
+it removes that lesion. `keepLastSeed` would protect the 7 single-seed images, not the rest.
+
+### The stray seeds
+
+Sorted by the per-image oracle gain (full table in `diag/step2_stray_seeds.csv`). The five images
+carrying most of the gain:
+
+| image | seed | gtDist | fired | peakP_r32 | support_R100 | nnDist | regionArea | seeds in image | oracle gain |
+|---|---|---|---|---|---|---|---|---|---|
+| 641.png | 3 | 843 | 1 | 1.00 | 0 | 859 | 9 590 | 3 | +0.441 |
+| 428.png | 3 | 300 | 1 | 1.00 | 0 | 309 | 6 942 | 3 | +0.408 |
+| nv (25).png | 6 | 529 | 1 | 1.00 | 0 | 536 | 25 733 | 6 | +0.212 |
+| 419.png | 1 | 603 | 1 | 1.00 | 0 | 611 | 3 948 | 4 | +0.186 |
+| 419.png | 4 | 116 | 1 | 0.72 | 0 | 156 | 954 | 4 | +0.186 |
+| 576.png | 1 | 457 | 1 | 1.00 | 0 | 507 | 6 878 | 5 | +0.161 |
+
+Each is a lone, confident detection hundreds of pixels from any lesion, and the CNN responds
+fully to it. The 3 stray seeds on `nv (21).png` are the exception: 30–46 px off a 432k px lesion,
+with support 1–5.
+
+### Gate
+
+Best in-budget catch rate **25%** (8/32), below the 30% skip threshold → **SKIP step 3, go to
+step 4.** Not ambiguous under the plan's own bands.
+
+**Flagged for the human:**
+- The separating feature exists (support / `nnDist`, AUC 0.93), but none of the pre-registered
+  rule forms uses it the right way, and even support alone costs ~20 true seeds at 50% catch.
+- Whether a support-based gate would still raise IoU is an **IoU** question the plan's
+  **count** gate does not answer. Dropping a true seed costs nothing when another seed covers
+  its lesion, but an isolated true seed covers its lesion alone.
+- Running that would mean choosing a new rule form after seeing these numbers, so it was not
+  run.
+
+**Next step:** 4.
+
+**Human decision on the flag (2026-09-17):** skip step 3 as the plan says, and do not score a
+support-based gate. Reason given: some images have only a few seeds, and all of them are true
+positives, so an isolation rule would delete real lesions.
+
+---
+
+## Step 3 — P-based seed gate
+
+**Decision:** SKIP (step 2 gate: best in-budget catch rate 25% < 30%; confirmed by the human)
+No code, no flag. CUR stays REF0.
+
+---
+
+## Step 4 — Relax guard
+
+**Runs:** step 0 recorded relax as (a) fixed floor.
+**Prediction written before running:** ΔIoU 0 to +0.010, precision up, and a smaller Pred/GT in
+Q1–Q2.
+
+**Decision:** REJECT (flag stays in the code, default `relaxAlpha = 0`)
+**Config delta:** threshold for a relaxed seed = `max(relaxFloor, relaxAlpha · max P within 32 px)`;
+grid `relaxAlpha` ∈ {0, 0.3, 0.5, 0.7, 0.9} × `relaxFloor` ∈ {0.20, 0.15, 0.10}
+**Code:** `+cnngvf/defaults.m`, `seedFallback.m`, `run_refine.m` step 4, `test_cnngvf.m`
+
+Flag off (`relaxAlpha = 0`) reproduces REF0: max per-image |ΔIoU| 5e-16. `initPhi` forces the
+disk, so the level set never reaches the guard; a test asserts it.
+
+| arm | IoU | median | F1 | prec | rec | pooled IoU | pooled rec | ΔIoU vs CUR | ± | sign p | Wilcoxon p | 95% CI |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| CUR = REF0 (α 0, floor 0.20) | 0.5097 | 0.5299 | 0.6489 | 0.6311 | 0.7579 | 0.5896 | 0.7570 | — | | | | |
+| **cross-fitted (α × floor)** | **0.5044** | 0.5305 | 0.6423 | 0.6198 | 0.7632 | 0.5994 | 0.7844 | **−0.0053** | 12/21 | 0.163 | 0.246 | [−0.0146, +0.0034] |
+
+Cross-fitted chosen per fold (α / floor): 0 / 0.15, 0.3 / 0.15, 0 / 0.10, 0.3 / 0.15, 0.3 / 0.15.
+Cross-device: choose on DRAC22 → α 0.3 / 0.20, TUH 0.5525 (−0.0036); choose on TUH → α 0 / 0.15,
+DRAC22 0.4759 (−0.0033).
+Dataset breakout (cross-fitted): DRAC22 0.4731 (−0.0061), TUH 0.5520 (−0.0041).
+Movers: better `nv (3)` +0.126, `nv (13)` +0.074, `nv (21)` +0.062, `nv (8)` +0.037,
+`nv (24)` +0.034; worse `573` −0.161, `nv (16)` −0.109, `nv (14)` −0.098, `nv (19)` −0.086,
+`nv (2)` −0.065.
+
+| quintile, IoU / Pred-GT | Q1 | Q2 | Q3 | Q4 | Q5 |
+|---|---|---|---|---|---|
+| CUR | 0.4272 / 2.13 | 0.4582 / 1.69 | 0.4900 / 1.47 | 0.5897 / 1.32 | 0.5762 / 0.89 |
+| cross-fitted | 0.4037 / 2.37 | 0.4570 / 1.74 | 0.4791 / 1.47 | 0.5926 / 1.33 | 0.5808 / 0.95 |
+
+Surface (full domain, **not a result**):
+
+| α | floor 0.20 | floor 0.15 | floor 0.10 | prec / rec at 0.20 | Pred/GT Q1 at 0.20 |
+|---|---|---|---|---|---|
+| 0 | 0.5097 | 0.5124 | 0.5101 | 0.631 / 0.758 | 2.13 |
+| 0.3 | 0.5094 | 0.5138 | 0.5142 | 0.644 / 0.742 | 1.98 |
+| 0.5 | 0.4782 | 0.4782 | 0.4782 | 0.666 / 0.679 | 1.90 |
+| 0.7 | 0.4688 | 0.4688 | 0.4688 | 0.668 / 0.666 | 1.90 |
+| 0.9 | 0.4691 | 0.4691 | 0.4691 | 0.669 / 0.665 | 1.90 |
+
+What the guard does:
+- **α ≥ 0.5 cuts recall far faster than it buys precision.** Precision +0.035, recall −0.08,
+  IoU −0.03 to −0.04. The floor stops mattering there, because α · peak is always above 0.20.
+- **α 0.3 moves precision and recall almost one for one.** The best surface cell (0.5142 at
+  α 0.3 / floor 0.10) is within the floor plateau's noise. The folds cannot agree on it: they
+  split between α 0 and α 0.3 and pick lower floors. That instability is what costs −0.005
+  out of sample.
+- **The predicted smaller Pred/GT in Q1–Q2 holds only at a fixed floor** (Q1 2.13 → 1.98 at
+  α 0.3). The cross-fitted arm picks lower floors and ends larger (Q1 2.37). Pooled IoU rises
+  (0.5896 → 0.5994), mostly on large TUH lesions, while mean IoU falls. The per-image mean and
+  the pixel-weighted score disagree here.
+- **Relaxed seeds** (218 at α 0), at the modal choice α 0.3 / floor 0.15: 196 still relax, 22
+  turn into disks. Median area of the claimed component 211 829 → 198 905 px; this is the whole
+  claimed lesion, often merged, not just the relaxed region. Mean `P` over it 0.418 → 0.429.
+
+Gate evaluation: rule 1 ✗ (−0.0053 < +0.003), rule 2 ✗ (CI lower bound −0.0146 < −0.005),
+rule 3 ✓ (pooled IoU 0.5994 ≥ 0.5896), rule 4 ✗ (`573.png` −0.161), rule 5 ✗ (both cross-device
+directions negative). Not ambiguous: rules 1 and 2 both fail. → **REJECT**.
+
+The plan's "any number moves by more than 0.05 IoU" stop was not triggered: no aggregate moves
+that far. The largest single-image move (−0.161) is the rule-4 failure recorded above.
+
+**Next step:** 5.
+
+---
+
+## Step 5 — Where the large-lesion pixels are lost
+
+**Prediction written before running:** more than 40% of Q5 false negatives lie outside every
+patch window.
+
+**Decision:** step 7 **SKIPPED**: only 7.6% of Q5 false-negative pixels lie outside every patch
+window (gate: < 20%). **Flagged for the human:** large-lesion loss is model-side, low `P` inside
+the window. The lever is training, not patch placement.
+**Config delta:** none (diagnostic, on CUR = relax 0.20)
+**Code:** `run_refine.m` step 5. Windows come from `cnngvf.seedPatch`, the geometry
+`inferProbMap` pastes with. Its raised-cosine weight is floored at 1e-3, so the effective window
+(weight > 0) is the whole 512 px patch.
+
+### FN buckets by size quintile (pooled pixels, fractions of the quintile's FN)
+
+| quintile | FN px | outside | lowP (< 0.20) | midP (0.20–0.50) | highP dropped | GT inside a window | mean P in GT | mean P in GT ∩ window |
+|---|---|---|---|---|---|---|---|---|
+| Q1 | 10 716 | **0.607** | 0.278 | 0.112 | 0.003 | 0.793 | 0.581 | 0.732 |
+| Q2 | 21 385 | 0.019 | 0.474 | 0.433 | 0.073 | 0.996 | 0.692 | 0.695 |
+| Q3 | 44 756 | 0.008 | 0.549 | 0.382 | 0.060 | 0.998 | 0.613 | 0.614 |
+| Q4 | 79 488 | 0.104 | 0.467 | 0.415 | 0.014 | 0.982 | 0.627 | 0.638 |
+| **Q5** | **543 794** | **0.076** | **0.757** | 0.160 | 0.007 | 0.980 | **0.389** | 0.397 |
+| all | 700 139 | 0.081 | 0.695 | 0.211 | 0.013 | | | |
+
+Q5 holds 78% of all FN pixels.
+
+### Ten largest GT images (65.0% of GT pixels, 67.7% of FN pixels)
+
+| image | dataset | GT px | FN px | outside | lowP | midP | highP | GT in window | mean P in GT |
+|---|---|---|---|---|---|---|---|---|---|
+| nv (21).png | TUH | 432 533 | 98 731 | 0.000 | 0.906 | 0.089 | 0.005 | 1.000 | 0.281 |
+| nv (22).png | TUH | 298 255 | 29 267 | 0.000 | 0.545 | 0.435 | 0.020 | 1.000 | 0.545 |
+| nv (13).png | TUH | 260 290 | 51 012 | 0.000 | 0.912 | 0.085 | 0.003 | 1.000 | 0.398 |
+| 1115.png | DRAC22 | 239 227 | 36 058 | 0.000 | 0.894 | 0.105 | 0.001 | 1.000 | 0.382 |
+| nv (17).png | TUH | 162 273 | 55 914 | 0.000 | 0.724 | 0.271 | 0.005 | 1.000 | 0.444 |
+| nv (9).png | TUH | 126 110 | 823 | 0.000 | 0.995 | 0.005 | 0.000 | 1.000 | 0.574 |
+| nv (27).png | TUH | 111 928 | 50 704 | 0.000 | 0.950 | 0.049 | 0.001 | 1.000 | 0.267 |
+| 795.png | DRAC22 | 100 656 | 93 304 | **0.442** | 0.537 | 0.020 | 0.000 | 0.590 | 0.081 |
+| 461.png | DRAC22 | 77 384 | 22 719 | 0.000 | 0.289 | 0.695 | 0.016 | 1.000 | 0.543 |
+| 1236.png | DRAC22 | 64 902 | 35 149 | 0.000 | 0.665 | 0.319 | 0.016 | 1.000 | 0.376 |
+
+What it shows:
+- **The large lesions are almost entirely inside a patch, and `P` is low on them.** Nine of the
+  ten largest have 100% of their GT inside some window, and 72–95% of their misses sit at
+  P < 0.20. Mean `P` inside Q5 GT is 0.39, against 0.61–0.69 for Q2–Q4. The network sees these
+  lesions and under-responds; extending patches would not help.
+- **Nearly all Q5 "outside" pixels are one image.** `795.png`'s left lesion has no localization
+  point within 512 px (41k of the ~41k Q5 outside pixels). That is a localization miss.
+- **Q1's 61% outside is the two known no-seed images:** `299.png` (all 2 648 GT px outside) and
+  `445.png` (3 856 of 4 052). Again localization, as §10 found.
+- **`highP_dropped` is negligible** (1.3% overall). Claiming and `MinArea` are not losing lesion
+  pixels.
+- The largest miss mode overall is `lowP`, 70% of all FN pixels. That is what relax at 0.20
+  cannot reach and what step 4 showed a lower floor cannot take back without flooding.
+
+Overlays for the 14 Q5 images: `refine/diag/coverage/`. Green TP, blue FP, FN red outside /
+orange lowP / yellow midP / magenta highP, white window edge. `795` was inspected: the red lesion
+has no seed nearby, the orange one lies inside a window at low `P`, and the two blue FP blobs
+belong to its two stray seeds (step 2).
+
+**Next step:** 6 (TTA, GPU). Step 8 follows, since step 7 is skipped.
+
+---
+
+## Step 6 — Test-time augmentation (GPU, no retraining)
+
+**Prediction written before running:** ΔIoU 0 to +0.015. `P` becomes smoother and less extreme,
+so the best `tau` / `relaxFloor` may shift. That is why they are fitted again here. *(Only
+`relaxFloor` is tuned in CUR; steps 1, 3 and 4 adopted nothing, so it is the only parameter to
+fit again on each cache.)*
+
+**Decision:** REJECT (flag stays in the code, `cfg.Infer.tta = "none"`; the TTA cache is kept)
+**Config delta:** `cfg.Infer.tta = "d4"`. The 8 dihedral transforms, applied to both channels
+together, predicted, inverse-transformed and averaged as probabilities per patch before the
+raised-cosine stitch.
+**Code:** new `+cnngvf/d4.m`; `+cnngvf/inferProbMap.m` (TTA, optional variance output `V`,
+prediction loop moved to a local function); `probCache.m` (optional `V`, stored single);
+`defaults.m` (`Infer.tta`); `run_refine.m` step 6 (plus `seedTable` / `aucTable` pulled out of
+step 2); `test_cnngvf.m`
+
+### Tests, all before any GPU run
+
+1. `"none"` re-inferred for `458.png` (fold 3) vs the cached `P`: **max |ΔP| = 0**, bit-exact on
+   the GPU. Run by `run_refine(6)` before it infers anything.
+2. For every transform, the heat-map argmax lands on the image-channel marker placed at an
+   off-centre seed (catches a transposed `[cx cy]`).
+3. `inverse(transform(X)) == X` for all 8, on an array with no symmetry; the 8 are distinct.
+4. `"identity"` (the TTA path, 1-element group) reproduces `"none"` exactly through
+   `inferProbMap` with a real network.
+
+`test_cnngvf`: 14 checks pass.
+
+TTA cache: `result/DRACTUH_unclustered_threshold/probcache_tta/`, 68 images, **380 s** on the
+RTX 5050 (8× inference). Each file carries the original metadata plus `tta = "d4"`, the fold
+network path and `V`, and passes the fold leakage guard on read. The original cross-fit still
+reproduces 0.5061.
+
+### Headline, `relaxFloor` cross-fitted separately on each cache
+
+| arm | IoU | median | F1 | prec | rec | pooled IoU | pooled rec | ΔIoU vs CUR | ± | sign p | Wilcoxon p | 95% CI |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| CUR, cross-fitted floor | 0.5061 | 0.5371 | 0.6428 | 0.6025 | 0.7868 | 0.6053 | 0.8236 | — | | | | |
+| **TTA, cross-fitted floor** | **0.5095** | 0.5351 | 0.6449 | 0.6007 | 0.7945 | 0.6123 | 0.8244 | **+0.0034** | 42/24 | 0.036 | 0.009 | **[−0.0088, +0.0134]** |
+| REF0, 0.20 fixed | 0.5097 | 0.5299 | 0.6489 | 0.6311 | 0.7579 | 0.5896 | 0.7570 | | | | | |
+| TTA, 0.20 fixed | 0.5102 | 0.5344 | 0.6482 | 0.6287 | 0.7630 | 0.5929 | 0.7555 | +0.0005 vs REF0 | 39/27 | 0.175 | 0.060 | [−0.0114, +0.0099] |
+
+(sign-test `nchoosek` warns about exactness past ~57 non-tied images; relative error 2.2e-16.)
+
+Chosen floor per fold: identical on both caches, 0.10 / 0.15 / 0.10 / 0.15 / 0.15. TTA did not
+move the floor.
+Cross-device: choose on TUH → 0.15 on both, DRAC22 TTA 0.4825 vs 0.4759 (+0.0066); choose on
+DRAC22 → 0.20 on both, TUH TTA 0.5505 vs 0.5561 (**−0.0057**).
+Dataset breakout (cross-fitted): DRAC22 0.4683 → 0.4769 (+0.0086), TUH 0.5637 → 0.5591 (−0.0046).
+
+| quintile, IoU / Pred-GT | Q1 | Q2 | Q3 | Q4 | Q5 |
+|---|---|---|---|---|---|
+| CUR, cross-fitted | 0.4004 / 2.42 | 0.4549 / 1.85 | 0.4773 / 1.60 | 0.5826 / 1.43 | 0.6058 / 1.04 |
+| TTA, cross-fitted | 0.3816 / 2.48 | 0.4637 / 1.83 | 0.4825 / 1.60 | 0.5994 / 1.46 | 0.6093 / 1.01 |
+
+Movers vs CUR cross-fitted: better `1116` +0.171, `230` +0.070, `nv (9)` +0.060, `576` +0.044,
+`517` +0.039; worse **`nv (4)` −0.301**, `193` −0.062, `nv (27)` −0.055, `nv (24)` −0.032,
+`559` −0.030.
+
+**`nv (4).png` was checked as a possible bug** (plan: moves above 0.05 are suspect). It is the
+domain's smallest lesion (1 106 px, Q1). Its only seed fires at P = 1.000 on both caches, and
+TTA changes the image's `P > 0.5` pixel count by 0.8% (9 409 → 9 484). Near the lesion that
+small shift joins a neighbouring blob into the claimed component (1 917 → 4 061 px, recall 1.0
+both times), so IoU halves. This is a real sensitivity of thresholding on tiny lesions, not a
+TTA defect.
+
+### Curves (full domain, not results)
+
+| relaxFloor | 0.05 | 0.10 | 0.15 | 0.20 | 0.25 | 0.30 |
+|---|---|---|---|---|---|---|
+| original | 0.4863 | 0.5101 | 0.5124 | 0.5097 | 0.5012 | 0.4909 |
+| TTA | 0.4822 | 0.5118 | 0.5143 | 0.5102 | 0.5042 | 0.4938 |
+
+| tau (relax 0.20) | 0.30 | 0.35 | 0.40 | 0.45 | 0.50 | 0.55 | 0.60 | 0.65 |
+|---|---|---|---|---|---|---|---|---|
+| original | 0.4770 | 0.4851 | 0.4951 | 0.5019 | 0.5097 | 0.5157 | 0.5189 | 0.5182 |
+| TTA | 0.4766 | 0.4833 | 0.4926 | 0.5017 | 0.5102 | 0.5108 | 0.5148 | 0.5177 |
+
+TTA moves the surface up by at most ~0.003 and leaves its shape unchanged. The predicted
+"smoother, less extreme `P`" did not happen: mean |P_TTA − P| per image is 0.0041 (max 0.016),
+and the share of covered pixels at P > 0.9 or 0 < P < 0.1 is 0.344 → 0.343. The network is
+already nearly invariant to these transforms, so there is little for averaging to fix. (Under
+relax, `tau` above 0.5 scores higher on both caches; `tau` is pre-registered and is not tuned
+here, since a joint sweep is out of scope.)
+
+### Separability on TTA `P`, plus the TTA variance feature
+
+AUCs are essentially unchanged (support_R100 0.939, nnDist 0.929, peakP_r32 0.578). The new
+**`ttaVar_r16` (mean across-transform variance in a 16 px disk) has AUC 0.532**: no signal.
+Best in-budget stray catch: pre-registered forms 25% (unchanged); with the variance feature 34%.
+That is +9 points, under the +15 needed to ask about re-running step 3.
+
+Gate evaluation: rule 1 ✓ (+0.0034 ≥ +0.003), rule 2 ✗ (CI lower bound −0.0088 < −0.005),
+rule 3 ✓ (pooled IoU 0.6123 ≥ 0.6053), rule 4 ✗ (`nv (4)` −0.301), rule 5 ✗ (TUH direction
+−0.0057). Not ambiguous: rule 2 fails. → **REJECT**. Consistent with the numbers: +0.0034 is
+inside the noise the CI shows, it costs 8× inference, and it does not help on both devices.
+
+**Next step:** 8 (step 7 was skipped by step 5).
+
+---
+
+## Step 8 — Confirmation and handoff
+
+**Decision:** the final chain is REF0 (relax, floor cross-fitted). `defaults.m` unchanged: the arm
+already carries relax, and no later step was adopted.
+**Code:** `run_refine.m` step 8
+
+Level set asserted byte-identical once more: `run_refine(0)` on the final code reproduces 0.5097 /
+0.5061 / 0.4708, all to 5e-16 per image.
+
+| arm | IoU | median | F1 | prec | rec | pooled IoU | pooled rec | ΔIoU | ± | sign p | Wilcoxon p | 95% CI |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| REF0, 0.20 fixed | 0.5097 | 0.5299 | 0.6489 | 0.6311 | 0.7579 | 0.5896 | 0.7570 | | | | | |
+| **final, cross-fitted floor** | **0.5061** | 0.5371 | 0.6428 | 0.6025 | 0.7868 | 0.6053 | 0.8236 | −0.0036 vs REF0 | 15/18 | 0.728 | 0.497 | [−0.0139, +0.0068] |
+| level set | 0.4708 | 0.5026 | | | | | | | | | | |
+| final vs level set | | | | | | | | **+0.0353** | 30/36 | 0.539 | 0.838 | [−0.0029, +0.0775] |
+
+Step 8 has only the level set's per-image IoU (`step0/per_image_levelset.csv`), so its other
+columns are left blank.
+
+Leave-one-out attribution. Relax is the only adopted component; with it removed the chain is disk r=15:
+
+| chain | IoU | prec | rec | pooled IoU | ΔIoU | ± | 95% CI |
+|---|---|---|---|---|---|---|---|
+| final without relax (disk r=15) | 0.4691 | 0.6686 | 0.6653 | 0.4362 | | | |
+| final | 0.5061 | 0.6025 | 0.7868 | 0.6053 | **+0.0370** | 20/13 | [+0.0035, +0.0741] |
+
+The same +0.037 §9 found. Nothing else was adopted, so there is no stacking interaction to find.
+Movers (final vs disk): better `nv (21)` +0.520, `1115` +0.430, `nv (13)` +0.417, `nv (27)` +0.407,
+`319` +0.319; worse `nv (16)` −0.296, `573` −0.240, `nv (9)` −0.196, `144` −0.166, `098` −0.157.
+Cross-device on the whole chain: TUH → DRAC22 0.4759 (+0.0182 vs disk), DRAC22 → TUH 0.5561 (+0.0698).
+
+The expected-outcome table in REFINE.md put step 3 at 0.515–0.530 and step 6 at +0–0.015. Step 3
+never became buildable and step 6 landed at the edge of its band without clearing the CI rule. The
+final chain is 0.5061, far below the 0.56 leakage-audit threshold.
+

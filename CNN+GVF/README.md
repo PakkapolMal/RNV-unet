@@ -415,6 +415,21 @@ is why the unclustered points bought +0.11 IoU where every post-processing lever
 - **Clustered centres under-cover the ground truth.** `458.png` has 7 centres against 12
   components; 13 components have no centre at all. Regions no seed reaches stay at `P = 0` by
   design. The unclustered detections largely fix this and are the recommended training input.
+- **A seedless P was tried and not adopted** (branch `seedless-prob`, `docs/SEEDLESS.md`).
+  The `DRACTUH_seedless` arm drops the heat-map, tiles the whole frame (3×3 × 512 px, stride
+  256) and leaves seeds only for claiming, through the same reduced + relax 0.20 pipeline. The
+  fold-1 pilot (14 images) failed both pre-registered gates: IoU 0.4124 → **0.3273** (gate
+  ≥ 0.39) and ground-truth coverage 0.462 → **0.329** (gate: above seeded). Recall collapsed
+  (0.71 → 0.38) while precision rose, and validation loss sat at 0.65–0.73 for 19 epochs
+  against the seeded network's 0.437. The likely cause is `1 − generalizedDice` on
+  all-background crops, where any foreground scores Dice ≈ 0; the loss was held fixed by
+  design, so fix it before revisiting. Folds 2–5 were not run.
+- **Routing by device does not help.** The pilot showed TUH better seedless (0.443 → 0.491,
+  n = 5) and DRAC22 worse, so "TUH → seedless, DRAC22 → seeded" was checked with both fold-1
+  networks over all 68 images (batch-style, mostly in-sample): routed **0.4578** vs all-seeded
+  0.4575. On the images the networks trained on the split reverses (DRAC22 seedless 0.476 vs
+  0.437, TUH 0.507 vs 0.516) and seedless wins 13 of 27 TUH images — the pilot's TUH edge was
+  noise. Seedless is also the most overfit: 0.488 on trained-on images, 0.327 held out.
 - **27 unclustered detections lie outside every lesion.** They are dropped in training but
   still generate patches at inference, where they can only add false positives. Filtering them
   at inference is the cheapest available precision win and is untried.
