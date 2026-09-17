@@ -98,14 +98,26 @@ for s = 1:size(seeds, 1)
     % instead: what outline does the CNN give this lesion when read
     % permissively? The floor is then the single knob, and it is what
     % run_ablate(arm, "fallback") sweeps.
+    %
+    % The guard (../docs/REFINE.md step 4): with relaxAlpha > 0 the threshold is
+    % max(floor, relaxAlpha * peak P within 32 px), so a seed near a strong
+    % response is cut relative to that response instead of flooding a broad
+    % low plateau at the fixed floor. relaxAlpha = 0 is the fixed floor exactly.
+    thr = floor_;
+    if cfg.Post.relaxAlpha > 0
+        [cc, rr] = meshgrid(1:size(sub, 2), 1:size(sub, 1));
+        near = (rr - sr).^2 + (cc - sc).^2 <= 32^2;
+        thr = max(floor_, cfg.Post.relaxAlpha * max(sub(near)));
+    end
+
     comp = false(size(sub));
-    if sub(sr, sc) > floor_
-        comp = bwselect(sub > floor_, sc, sr, 8);
+    if sub(sr, sc) > thr
+        comp = bwselect(sub > thr, sc, sr, 8);
     end
 
     if nnz(comp) >= cfg.Post.MinArea
         D(r0:r1, c0:c1) = D(r0:r1, c0:c1) | comp;
-        relaxThr(s) = floor_;
+        relaxThr(s) = thr;
     else
         % P never gives a claimable component near this seed, even at the floor.
         % Keep the recall floor rather than dropping the lesion.

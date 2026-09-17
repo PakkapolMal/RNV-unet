@@ -2,7 +2,7 @@
 title: Refinement Plan — Measured Results
 description: Step-by-step record of REFINE.md on the 68-image combined domain, cached P, reduced pipeline + relax.
 kind: measurement-record
-status: in progress — steps 0–2 done
+status: in progress — steps 0–4 done
 dataset: DRAC22 + TUH (68)
 updated: 2026-09-17
 ---
@@ -321,3 +321,82 @@ step 4.** Not ambiguous under the plan's own bands.
   run.
 
 **Next step:** 4.
+
+**Human decision on the flag (2026-09-17):** skip step 3 as the plan says, and do not score a
+support-based gate. Reason given: some images have only a few seeds, and all of them are true
+positives, so an isolation rule would delete real lesions.
+
+---
+
+## Step 3 — P-based seed gate
+
+**Decision:** SKIP (step 2 gate: best in-budget catch rate 25% < 30%; confirmed by the human)
+No code, no flag. CUR stays REF0.
+
+---
+
+## Step 4 — Relax guard
+
+**Runs:** step 0 recorded relax as (a) fixed floor.
+**Prediction written before running:** ΔIoU 0 to +0.010, precision up, and a smaller Pred/GT in
+Q1–Q2.
+
+**Decision:** REJECT (flag stays in the code, default `relaxAlpha = 0`)
+**Config delta:** threshold for a relaxed seed = `max(relaxFloor, relaxAlpha · max P within 32 px)`;
+grid `relaxAlpha` ∈ {0, 0.3, 0.5, 0.7, 0.9} × `relaxFloor` ∈ {0.20, 0.15, 0.10}
+**Code:** `+cnngvf/defaults.m`, `seedFallback.m`, `run_refine.m` step 4, `test_cnngvf.m`
+
+Flag off (`relaxAlpha = 0`) reproduces REF0: max per-image |ΔIoU| 5e-16. `initPhi` forces the
+disk, so the level set never reaches the guard; a test asserts it.
+
+| arm | IoU | median | F1 | prec | rec | pooled IoU | pooled rec | ΔIoU vs CUR | ± | sign p | Wilcoxon p | 95% CI |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| CUR = REF0 (α 0, floor 0.20) | 0.5097 | 0.5299 | 0.6489 | 0.6311 | 0.7579 | 0.5896 | 0.7570 | — | | | | |
+| **cross-fitted (α × floor)** | **0.5044** | 0.5305 | 0.6423 | 0.6198 | 0.7632 | 0.5994 | 0.7844 | **−0.0053** | 12/21 | 0.163 | 0.246 | [−0.0146, +0.0034] |
+
+Cross-fitted chosen per fold (α / floor): 0 / 0.15, 0.3 / 0.15, 0 / 0.10, 0.3 / 0.15, 0.3 / 0.15.
+Cross-device: choose on DRAC22 → α 0.3 / 0.20, TUH 0.5525 (−0.0036); choose on TUH → α 0 / 0.15,
+DRAC22 0.4759 (−0.0033).
+Dataset breakout (cross-fitted): DRAC22 0.4731 (−0.0061), TUH 0.5520 (−0.0041).
+Movers: better `nv (3)` +0.126, `nv (13)` +0.074, `nv (21)` +0.062, `nv (8)` +0.037,
+`nv (24)` +0.034; worse `573` −0.161, `nv (16)` −0.109, `nv (14)` −0.098, `nv (19)` −0.086,
+`nv (2)` −0.065.
+
+| quintile, IoU / Pred-GT | Q1 | Q2 | Q3 | Q4 | Q5 |
+|---|---|---|---|---|---|
+| CUR | 0.4272 / 2.13 | 0.4582 / 1.69 | 0.4900 / 1.47 | 0.5897 / 1.32 | 0.5762 / 0.89 |
+| cross-fitted | 0.4037 / 2.37 | 0.4570 / 1.74 | 0.4791 / 1.47 | 0.5926 / 1.33 | 0.5808 / 0.95 |
+
+Surface (full domain, **not a result**):
+
+| α | floor 0.20 | floor 0.15 | floor 0.10 | prec / rec at 0.20 | Pred/GT Q1 at 0.20 |
+|---|---|---|---|---|---|
+| 0 | 0.5097 | 0.5124 | 0.5101 | 0.631 / 0.758 | 2.13 |
+| 0.3 | 0.5094 | 0.5138 | 0.5142 | 0.644 / 0.742 | 1.98 |
+| 0.5 | 0.4782 | 0.4782 | 0.4782 | 0.666 / 0.679 | 1.90 |
+| 0.7 | 0.4688 | 0.4688 | 0.4688 | 0.668 / 0.666 | 1.90 |
+| 0.9 | 0.4691 | 0.4691 | 0.4691 | 0.669 / 0.665 | 1.90 |
+
+What the guard does:
+- **α ≥ 0.5 cuts recall far faster than it buys precision.** Precision +0.035, recall −0.08,
+  IoU −0.03 to −0.04. The floor stops mattering there, because α · peak is always above 0.20.
+- **α 0.3 moves precision and recall almost one for one.** The best surface cell (0.5142 at
+  α 0.3 / floor 0.10) is within the floor plateau's noise. The folds cannot agree on it: they
+  split between α 0 and α 0.3 and pick lower floors. That instability is what costs −0.005
+  out of sample.
+- **The predicted smaller Pred/GT in Q1–Q2 holds only at a fixed floor** (Q1 2.13 → 1.98 at
+  α 0.3). The cross-fitted arm picks lower floors and ends larger (Q1 2.37). Pooled IoU rises
+  (0.5896 → 0.5994), mostly on large TUH lesions, while mean IoU falls. The per-image mean and
+  the pixel-weighted score disagree here.
+- **Relaxed seeds** (218 at α 0), at the modal choice α 0.3 / floor 0.15: 196 still relax, 22
+  turn into disks. Median area of the claimed component 211 829 → 198 905 px; this is the whole
+  claimed lesion, often merged, not just the relaxed region. Mean `P` over it 0.418 → 0.429.
+
+Gate evaluation: rule 1 ✗ (−0.0053 < +0.003), rule 2 ✗ (CI lower bound −0.0146 < −0.005),
+rule 3 ✓ (pooled IoU 0.5994 ≥ 0.5896), rule 4 ✗ (`573.png` −0.161), rule 5 ✗ (both cross-device
+directions negative). Not ambiguous: rules 1 and 2 both fail. → **REJECT**.
+
+The plan's "any number moves by more than 0.05 IoU" stop was not triggered: no aggregate moves
+that far. The largest single-image move (−0.161) is the rule-4 failure recorded above.
+
+**Next step:** 5.

@@ -41,6 +41,8 @@ switch step
         step1(cfg, D, Q, outDir, refineDir);
     case 2
         step2(cfg, D, outDir, refineDir);
+    case 4
+        step4(cfg, D, Q, outDir, refineDir);
     otherwise
         error('run_refine:badStep', 'Step %d is not implemented yet.', step);
 end
@@ -411,6 +413,91 @@ end
 row = table(name, k, p0, d0, nnz(drop & T.stray), nnz(drop & ~T.stray), allDropped, single, ...
     weighted / numel(imgs), 'VariableNames', {'Rule', 'k', 'p0', 'd0', 'StrayCaught', 'TrueDropped', ...
     'ImagesAllDropped', 'SingleSeedOrphans', 'OracleWeighted'});
+end
+
+
+% =========================================================================
+% STEP 4
+% =========================================================================
+
+function step4(cfg, D, Q, outDir, refineDir)
+fid = fopen(fullfile(outDir, 'step4_summary.txt'), 'w');
+say = @(varargin) sayBoth(fid, varargin{:});
+t0 = tic;
+say('Step 4 - relax guard | %s | %d images | %s\n\n', cfg.Arm, D.n, cfg.Paths.Output);
+
+% CUR is still REF0: step 1 rejected, step 3 skipped.
+assert(cfg.Post.relaxAlpha == 0 && cfg.Post.relaxFloor == 0.20 && isinf(cfg.Post.claimMaxDist), ...
+    'CUR is not REF0');
+[CUR, trace0] = scoreAll(cfg, D, true);
+ref0 = readtable(fullfile(refineDir, 'step0', 'per_image_REF0.csv'), 'TextType', 'string');
+dRef = max(abs(CUR.Iou - ref0.Iou));
+say('Flag off (relaxAlpha 0) vs step-0 REF0: max |dIoU| %.2g\n\n', dRef);
+assert(dRef < 1e-12, 'run_refine:flagOff', 'relaxAlpha = 0 does not reproduce REF0');
+
+% Most conservative first: alpha 0 (feature off), and within an alpha the CUR
+% floor 0.20 before the lower ones.
+[fl, al] = meshgrid([0.20 0.15 0.10], [0 0.3 0.5 0.7 0.9]);
+al = al'; fl = fl';
+grid = table(al(:), fl(:), 'VariableNames', {'relaxAlpha', 'relaxFloor'});
+fn = @(g) scoreAll(setField(setField(cfg, 'relaxAlpha', g.relaxAlpha), 'relaxFloor', g.relaxFloor), D, false);
+CF = cnngvf.crossFit(grid, fn, D.fold, D.dset);
+XF = CF.perImage;
+
+arms = {"CUR (alpha 0, 0.20)", CUR; "cross-fitted", XF};
+[summary, stats] = reportArms(say, arms, CUR, Q);
+say('\nCross-fitted chosen per fold (alpha / floor): %s\n', strjoin(compose("%g/%.2f", ...
+    grid.relaxAlpha(CF.chosen.GridRow), grid.relaxFloor(CF.chosen.GridRow)), ', '));
+cdev = crossDeviceDeltas(say, CF, grid, 'relaxAlpha', CUR, D);
+for k = 1:height(cdev)
+    say('   (floor %.2f)\n', grid.relaxFloor(cdev.GridRow(k)));
+end
+
+say('\nSurface (full domain, NOT a result)\n');
+say('  alpha  floor    IoU   prec    rec  pooled IoU  Pred/GT Q1  Q2\n');
+for g = 1:height(CF.surface)
+    s = CF.surface(g, :);
+    r = cnngvf.refineScore(CF.rows{g}, Q);
+    say('  %-5g  %.2f  %.4f %.4f %.4f  %.4f      %.2f  %.2f\n', s.relaxAlpha, s.relaxFloor, s.MeanIou, ...
+        s.MeanPrec, s.MeanRec, s.PooledIou, r.PredGt_Q1, r.PredGt_Q2);
+end
+
+G = gate(say, XF, CUR, cdev);
+
+% ---- relaxed seeds only: what the guard does to their regions ------------
+g = mode(CF.chosen.GridRow);
+c = setField(setField(cfg, 'relaxAlpha', grid.relaxAlpha(g)), 'relaxFloor', grid.relaxFloor(g));
+[~, traceG] = scoreAll(c, D, true);
+relaxed = ~isnan(trace0.relaxThrUsed);
+[mP0, mPG] = deal(nan(height(trace0), 1));
+for i = 1:D.n
+    s = find(trace0.image == D.images(i) & relaxed);
+    if isempty(s), continue; end
+    P = double(D.P{i});
+    [~, ps0] = cnngvf.maskFromProb(P, D.seeds{i}, cfg);
+    [~, psG] = cnngvf.maskFromProb(P, D.seeds{i}, c);
+    for j = s'
+        k = trace0.seedIdx(j);
+        if nnz(ps0{k}), mP0(j) = mean(P(ps0{k})); end
+        if nnz(psG{k}), mPG(j) = mean(P(psG{k})); end
+    end
+end
+say(['\nRelaxed seeds at alpha 0 (%d), modal chosen setting alpha %g / floor %.2f:\n' ...
+     '  median claimed area %d -> %d | mean region P %.3f -> %.3f | still relaxed %d, now disk %d\n'], ...
+    nnz(relaxed), grid.relaxAlpha(g), grid.relaxFloor(g), round(median(trace0.claimedCompArea(relaxed))), ...
+    round(median(traceG.claimedCompArea(relaxed))), mean(mP0(relaxed), 'omitnan'), mean(mPG(relaxed), 'omitnan'), ...
+    nnz(relaxed & ~isnan(traceG.relaxThrUsed)), nnz(relaxed & isnan(traceG.relaxThrUsed)));
+
+say('\n%.0f s\n', toc(t0));
+fclose(fid);
+writetable(summary, fullfile(outDir, 'summary.csv'));
+writetable(stats, fullfile(outDir, 'stats.csv'));
+writetable(CUR, fullfile(outDir, 'per_image_CUR.csv'));
+writetable(XF, fullfile(outDir, 'per_image_crossfit.csv'));
+writetable(CF.surface, fullfile(outDir, 'surface_relaxAlpha_floor.csv'));
+writetable(CF.chosen, fullfile(outDir, 'chosen_relaxAlpha_floor.csv'));
+writetable(cdev, fullfile(outDir, 'crossdevice.csv'));
+writetable(struct2table(G), fullfile(outDir, 'gate.csv'));
 end
 
 

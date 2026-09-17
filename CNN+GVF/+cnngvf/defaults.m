@@ -372,6 +372,9 @@ cfg.Post.fallbackMode = "disk";
 % "relax" bounds, because a lowered threshold on a broad plateau floods.
 cfg.Post.relaxWindow = 128;    % px searched either side of the seed
 cfg.Post.relaxFloor  = 0.10;   % the permissive threshold applied in that window
+% Relax guard: threshold = max(relaxFloor, relaxAlpha * peak P within 32 px of
+% the seed). 0 is the fixed floor, exactly. ../docs/REFINE.md step 4.
+cfg.Post.relaxAlpha  = 0;
 
 % Farthest a seed standing on background may reach to claim a component, px.
 % Threshold mode only (cnngvf.maskFromProb passes it; the level set does not).

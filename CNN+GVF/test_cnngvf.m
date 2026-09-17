@@ -373,6 +373,21 @@ assert(isequal(L.support_R64, [1; 1; 0]) && L.nnDist(1) == 50 && all(L.imageSeed
     'seedFeatures support / nnDist is wrong');
 assert(isequaln(cnngvf.seedFeatures(P, weak, blind), F), 'seedFeatures depends on ground-truth paths');
 
+% Step 4, relaxAlpha: 0 is the fixed floor exactly; 0.5 cuts the weak blob
+% (peak ~0.42 plus speckle) at alpha * peak instead of 0.20, so its region
+% shrinks but still clears MinArea; the level set never sees it.
+a0 = rc; a0.Post.relaxAlpha = 0;
+[m0, ~, t0] = cnngvf.maskFromProb(P, weak, a0);
+assert(isequal(m0, mask) && isequaln(t0, tr), 'relaxAlpha 0 is not the fixed floor');
+a5 = rc; a5.Post.relaxAlpha = 0.5;
+[m5, s5, t5] = cnngvf.maskFromProb(P, weak, a5);
+peak = max(P((xx - 60).^2 + (yy - 200).^2 <= 32^2));
+assert(abs(t5.relaxThrUsed(3) - max(0.20, 0.5 * peak)) < 1e-12, ...
+    'relaxAlpha threshold is not max(floor, alpha * peak within 32 px): got %g', t5.relaxThrUsed(3));
+assert(nnz(s5{3}) < nnz(perSeed{3}) && nnz(m5) < nnz(mask), 'relaxAlpha 0.5 did not shrink the relaxed region');
+lsA = dc; lsA.Post.relaxAlpha = 0.9;
+assert(isequal(refine(P, weak, lsA), refine(P, weak, dc)), 'relaxAlpha reached the level set');
+
 fprintf('  refine trace              ok (relax per arm, level set inert, no GT)\n');
 end
 
