@@ -1,8 +1,15 @@
-function [masks, union] = seedMasks(BW, seeds, minArea, rule)
+function [masks, union, compId, claimDist] = seedMasks(BW, seeds, minArea, rule)
 %CNNGVF.SEEDMASKS Split a mask into the one component each seed claims.
 %
 %  [masks, union] = cnngvf.seedMasks(BW, seeds, minArea)
 %  [masks, union] = cnngvf.seedMasks(BW, seeds, minArea, rule)
+%  [masks, union, compId, claimDist] = cnngvf.seedMasks(...)
+%
+%  compId    : S x 1 label (bwconncomp order) of the claimed component, 0 = none
+%  claimDist : S x 1 0 when the seed is inside it, else the distance in px from
+%              the seed pixel to its nearest pixel, Inf when nothing was claimed.
+%              Computed only when asked for; feeds the per-seed trace
+%              (../docs/REFINE.md, step 0).
 %
 %  BW      : logical mask, any number of connected components
 %  seeds   : S x 2 [cx cy]
@@ -52,9 +59,11 @@ if nargin < 4 || strlength(rule) == 0
     rule = "centroid";
 end
 
-nSeeds = size(seeds, 1);
-masks  = cell(nSeeds, 1);
-union  = false(size(BW));
+nSeeds    = size(seeds, 1);
+masks     = cell(nSeeds, 1);
+union     = false(size(BW));
+compId    = zeros(nSeeds, 1);     % label of the claimed component, 0 = none
+claimDist = inf(nSeeds, 1);       % 0 inside it, else px to its nearest pixel
 
 CC = bwconncomp(BW);
 if CC.NumObjects == 0 || nSeeds == 0
@@ -87,6 +96,7 @@ for s = 1:nSeeds
     c = min(max(round(seeds(s, 1)), 1), w);
     k = L(r, c);
 
+    dist = 0;
     if k == 0 || ~ok(k)
         if rule == "boundary"
             k = L(nearest(r, c));
@@ -95,11 +105,17 @@ for s = 1:nSeeds
             d(~ok) = inf;
             [~, k] = min(d);
         end
+        if nargout >= 4
+            [pr, pc] = ind2sub([h w], CC.PixelIdxList{k});
+            dist = min(hypot(pr - r, pc - c));
+        end
     end
 
     m = false(h, w);
     m(CC.PixelIdxList{k}) = true;
-    masks{s} = m;
-    union    = union | m;
+    masks{s}     = m;
+    union        = union | m;
+    compId(s)    = k;
+    claimDist(s) = dist;
 end
 end

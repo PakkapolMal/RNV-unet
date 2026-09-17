@@ -1,4 +1,4 @@
-function D = seedFallback(P, seeds, BW, cfg)
+function [D, relaxThr] = seedFallback(P, seeds, BW, cfg)
 %CNNGVF.SEEDFALLBACK What to output for a seed the threshold left with nothing.
 %
 %  D = cnngvf.seedFallback(P, seeds, BW, cfg)
@@ -6,6 +6,8 @@ function D = seedFallback(P, seeds, BW, cfg)
 %  P     : probability map
 %  BW    : the thresholded foreground; a seed already standing on it is skipped
 %  D     : logical, what to OR into BW
+%  relaxThr : S x 1, the threshold a seed's relaxed region was cut at, NaN for a
+%             seed that fired, got a disk, or ran in "disk" mode
 %
 %  This is the single largest post-processing effect measured on this pipeline
 %  (-0.016 IoU at p = 1.3e-7, nine times the level set's), and it is not a rare
@@ -47,9 +49,10 @@ function D = seedFallback(P, seeds, BW, cfg)
 switch cfg.Post.fallbackMode
     case "disk"
         D = cnngvf.seedDisks(size(P), seeds, BW, cfg);
+        relaxThr = nan(size(seeds, 1), 1);
 
     case "relax"
-        D = relaxFallback(P, seeds, BW, cfg);
+        [D, relaxThr] = relaxFallback(P, seeds, BW, cfg);
 
     otherwise
         error('cnngvf:seedFallback:badMode', ...
@@ -63,9 +66,10 @@ end
 % LOCAL FUNCTIONS
 % =========================================================================
 
-function D = relaxFallback(P, seeds, BW, cfg)
+function [D, relaxThr] = relaxFallback(P, seeds, BW, cfg)
 [h, w] = size(P);
 D = false(h, w);
+relaxThr = nan(size(seeds, 1), 1);
 if isempty(seeds)
     return;
 end
@@ -101,6 +105,7 @@ for s = 1:size(seeds, 1)
 
     if nnz(comp) >= cfg.Post.MinArea
         D(r0:r1, c0:c1) = D(r0:r1, c0:c1) | comp;
+        relaxThr(s) = floor_;
     else
         % P never gives a claimable component near this seed, even at the floor.
         % Keep the recall floor rather than dropping the lesion.

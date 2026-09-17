@@ -18,6 +18,8 @@ testGvfField(cfg);
 testRefinement(cfg);
 testPostModes(cfg);
 testSeedComponents(cfg);
+testRefineTrace(cfg);
+testRefineInfra();
 testProbCache(cfg);
 testDomain(cfg);
 testArms(cfg);
@@ -279,6 +281,100 @@ assert(~adj{1}(103, 147) && adj{1}(103, 140), ...
     'the boundary rule claimed a component below minArea');
 
 fprintf('  seed mask selection       ok (centroid and boundary rules)\n');
+end
+
+
+function testRefineTrace(cfg)
+% ../docs/REFINE.md step 0: relax is per-arm and threshold-only, the per-seed
+% trace says what happened to every seed, and the production path never needs
+% ground truth.
+d = cnngvf.arm(cfg, "DRACTUH_unclustered");
+assert(d.Post.fallbackMode == "relax" && d.Post.relaxFloor == 0.20, ...
+    'DRACTUH_unclustered does not set relax 0.20');
+assert(cfg.Post.fallbackMode == "disk", 'defaults.m no longer keeps the disk');
+for a = ["clustered", "unclustered", "unclustered_boundary"]
+    assert(cnngvf.arm(cfg, a).Post.fallbackMode == "disk", 'frozen arm %s moved off the disk', a);
+end
+
+[truth, seeds] = syntheticScene();
+P = stubProbMap(truth);
+[xx, yy] = meshgrid(1:size(P, 2), 1:size(P, 1));
+P = max(P, 0.42 * exp(-((xx - 60).^2 + (yy - 200).^2) / (2 * 22^2)));   % a blob below tau
+weak = [seeds; 60 200; 230 30];      % fired, fired, relaxed, bare background
+
+rc = cfg; rc.Post.fallbackMode = "relax"; rc.Post.relaxFloor = 0.20;
+dc = cfg; dc.Post.fallbackMode = "disk";
+
+% The level set must not see the arm's relax.
+assert(isequal(refine(P, weak, rc), refine(P, weak, dc)), ...
+    'fallbackMode "relax" moved the level-set output - initPhi must always plant disks');
+
+rc.Post.mode = "threshold";
+[mask, perSeed, tr] = cnngvf.maskFromProb(P, weak, rc);
+assert(isequal(mask, cnngvf.maskFromProb(P, weak, rc)), 'asking for the trace changed the mask');
+assert(height(tr) == 4 && isequal(tr.seedIdx, (1:4)'), 'trace is not one row per seed');
+% The scene's own seeds sit on concavity edges, so only the added two are pinned.
+assert(~any(tr.fired(3:4)), 'trace.fired is wrong for the weak and bare seeds');
+assert(all(isnan(tr.relaxThrUsed(tr.fired))) && tr.relaxThrUsed(3) == 0.20 && isnan(tr.relaxThrUsed(4)), ...
+    'trace.relaxThrUsed should be the floor for relaxed seeds only');
+assert(isequal(tr.claimedCompArea, cellfun(@nnz, perSeed)), 'trace area disagrees with perSeed');
+assert(all(tr.claimDist == 0), 'every seed here stands on its own component');
+
+% claimDist on the seedMasks fixture: inside = 0, 2 px off the blob = 2, none = Inf.
+BW = false(200);
+BW(20:60, 20:60) = true;
+BW(120:160, 120:160) = true;
+[~, ~, id, dist] = cnngvf.seedMasks(BW, [40 40; 118 140], cfg.Post.MinArea, "boundary");
+assert(all(id > 0) && isequal(dist, [0; 2]), 'claimDist should be [0; 2], got %s', mat2str(dist));
+[~, ~, id, dist] = cnngvf.seedMasks(false(50), [10 10], 0, "boundary");
+assert(id == 0 && isinf(dist), 'a seed that claims nothing should get id 0, distance Inf');
+
+% Leakage rule 1: with every ground-truth path pointed at nothing, the output is
+% unchanged - so the production path cannot be reading it.
+blind = rc;
+for k = 1:numel(blind.Datasets)
+    blind.Datasets(k).GT = "Z:\no\such\gt"; blind.Datasets(k).SegGT = "Z:\no\such\seg";
+end
+blind.Paths.GT = "Z:\no\such\gt"; blind.Paths.SegGT = "Z:\no\such\seg";
+[m2, ~, tr2] = cnngvf.maskFromProb(P, weak, blind);
+assert(isequal(m2, mask) && isequaln(tr2, tr), 'maskFromProb output depends on ground-truth paths');
+
+fprintf('  refine trace              ok (relax per arm, level set inert, no GT)\n');
+end
+
+
+function testRefineInfra()
+% Paired statistics and cross-fitting, on numbers small enough to check by hand.
+d = [0.1; 0.2; 0.3; -0.05; 0];
+st = rng;
+S = cnngvf.pairedStats(d, "i" + (1:5)');
+assert(isequal(rng, st), 'pairedStats left the global RNG moved');
+assert(S.up == 3 && S.down == 1 && abs(S.signP - 0.625) < 1e-12, 'sign test is wrong');
+assert(S.ci(1) <= S.mean && S.mean <= S.ci(2), 'bootstrap CI excludes the mean');
+assert(isequal(S.ci, cnngvf.pairedStats(d, "i" + (1:5)').ci), 'bootstrap CI is not deterministic');
+assert(height(S.gains) == 3 && S.gains.Image(1) == "i3" && height(S.losses) == 1, 'movers are wrong');
+
+% Cross-fit: row 2 beats row 1 by 0.0005 everywhere. A plain maximum picks row 2;
+% the 0.001 tie-break picks the more conservative row 1.
+n = 10;
+base = table("im" + (1:n)', repmat(["A"; "B"], 5, 1), repmat((1:5)', 2, 1), ...
+    ones(n, 1), ones(n, 1), ones(n, 1), zeros(n, 1), zeros(n, 1), (1:n)' / 20, ...
+    ones(n, 1), ones(n, 1), ones(n, 1), 'VariableNames', {'Image', 'Dataset', 'Fold', ...
+    'GtPx', 'PredPx', 'TP', 'FP', 'FN', 'Iou', 'F1', 'Precision', 'Recall'});
+grid = table([0; 1], 'VariableNames', {'x'});
+fn = @(g) setIou(base, base.Iou + 0.0005 * g.x);
+plain = cnngvf.crossFit(grid, fn, base.Fold, base.Dataset, 0);
+tied  = cnngvf.crossFit(grid, fn, base.Fold, base.Dataset);
+assert(all(plain.chosen.GridRow == 2) && all(tied.chosen.GridRow == 1), 'crossFit tie-break is wrong');
+assert(max(abs(plain.perImage.Iou - (base.Iou + 0.0005))) < 1e-12, 'crossFit scored the wrong row');
+assert(height(plain.surface) == 2 && height(plain.crossDevice) == 2, 'crossFit surface/cross-device shape');
+
+fprintf('  refine infrastructure     ok (paired stats, cross-fit)\n');
+end
+
+
+function T = setIou(T, v)
+T.Iou = v;
 end
 
 

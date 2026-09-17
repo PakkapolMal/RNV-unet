@@ -1,13 +1,20 @@
-function [mask, perSeed] = maskFromProb(P, seeds, cfg)
+function [mask, perSeed, trace] = maskFromProb(P, seeds, cfg)
 %CNNGVF.MASKFROMPROB The reduced pipeline: a mask straight off the threshold.
 %
 %  [mask, perSeed] = cnngvf.maskFromProb(P, seeds, cfg)
+%  [mask, perSeed, trace] = cnngvf.maskFromProb(P, seeds, cfg)
 %
 %  P       : probability map from cnngvf.inferProbMap
 %  seeds   : S x 2 [cx cy]
 %
 %  mask    : logical h x w, the union of every claimed lesion
 %  perSeed : S x 1 cell, one mask per seed
+%  trace   : S x 1 table, only built when asked for - seedIdx, cx, cy, fired
+%            (P > tau at the seed pixel), relaxThrUsed (NaN unless the seed got
+%            a relaxed region), claimedCompId, claimedCompArea, claimDist (see
+%            cnngvf.seedMasks). No image column: the caller knows the name.
+%
+%  Reads P, seeds and cfg only - never ground truth (../docs/REFINE.md).
 %
 %  Replaces stages 5-9 of cnngvf.segmentImage - the force field, the GVF
 %  diffusion, the edge stopper and the DRLSE evolution - with the threshold on P
@@ -41,8 +48,11 @@ BW = P > cfg.Post.tau;
 % evolution then grows or discards, while here nothing evolves and the disk
 % survives into the output at its literal radius. That is why it is a factor in
 % the ablation rather than a settled default.
+S = size(seeds, 1);
+relaxThr = nan(S, 1);
 if cfg.Post.diskFallback
-    BW = BW | cnngvf.seedFallback(P, seeds, BW, cfg);
+    [D, relaxThr] = cnngvf.seedFallback(P, seeds, BW, cfg);
+    BW = BW | D;
 end
 
 if cfg.Post.imclose
@@ -56,5 +66,19 @@ BW = imfill(BW, 'holes');
 % Once, not twice. The level-set path claims at initialization AND after
 % evolution; with no evolution there is nothing to initialize, so the two
 % collapse into one call.
-[perSeed, mask] = cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule);
+if nargout < 3
+    [perSeed, mask] = cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule);
+    return;
+end
+[perSeed, mask, compId, claimDist] = ...
+    cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule);
+
+[h, w] = size(P);
+row   = min(max(round(seeds(:, 2)), 1), h);
+col   = min(max(round(seeds(:, 1)), 1), w);
+fired = P(sub2ind([h w], row, col)) > cfg.Post.tau;
+area  = cellfun(@nnz, perSeed);
+trace = table((1:S)', seeds(:, 1), seeds(:, 2), fired, relaxThr, compId, area, claimDist, ...
+    'VariableNames', {'seedIdx', 'cx', 'cy', 'fired', 'relaxThrUsed', ...
+    'claimedCompId', 'claimedCompArea', 'claimDist'});
 end

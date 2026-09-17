@@ -54,6 +54,7 @@ writeParams(fid, 'Force',  cfg.Force);
 writeParams(fid, 'GVF',    cfg.Gvf);
 writeParams(fid, 'DRLSE',  cfg.Drlse);
 writeParams(fid, 'Patch',  cfg.Patch);
+writeParams(fid, 'Post',   cfg.Post);    % mode, tau, fallback, imclose, every refine flag
 
 if byImage
     fprintf(fid, '\nPer-image\n---------\n');
@@ -84,14 +85,28 @@ end
 
 function writeParams(fid, name, s)
 fprintf(fid, '%s parameters\n', name);
+writeFields(fid, '', s);
+fprintf(fid, '\n');
+end
+
+
+function writeFields(fid, prefix, s)
+% Nested structs are flattened as a.b and a strel is named by class and size -
+% neither existed in a block this wrote before Post.
 f = fieldnames(s);
 for k = 1:numel(f)
     v = s.(f{k});
-    if isnumeric(v) || islogical(v)
-        fprintf(fid, '  %-12s %g\n', f{k}, double(v));
+    name = [prefix f{k}];
+    if isstruct(v)
+        writeFields(fid, [name '.'], v);
+    elseif isa(v, 'strel')
+        fprintf(fid, '  %-12s strel %s\n', name, mat2str(size(v.Neighborhood)));
+    elseif (isnumeric(v) || islogical(v)) && isscalar(v)
+        fprintf(fid, '  %-12s %g\n', name, double(v));
+    elseif isnumeric(v) || islogical(v)
+        fprintf(fid, '  %-12s %s\n', name, mat2str(double(v)));
     else
-        fprintf(fid, '  %-12s %s\n', f{k}, string(v));
+        fprintf(fid, '  %-12s %s\n', name, strjoin(string(v), ', '));
     end
 end
-fprintf(fid, '\n');
 end
