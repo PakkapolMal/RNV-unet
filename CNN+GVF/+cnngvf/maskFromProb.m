@@ -41,8 +41,10 @@ BW = P > cfg.Post.tau;
 % evolution then grows or discards, while here nothing evolves and the disk
 % survives into the output at its literal radius. That is why it is a factor in
 % the ablation rather than a settled default.
+dropped = false(size(seeds, 1), 1);
 if cfg.Post.diskFallback
-    BW = BW | cnngvf.seedFallback(P, seeds, BW, cfg);
+    [D, dropped] = cnngvf.seedFallback(P, seeds, BW, cfg);
+    BW = BW | D;
 end
 
 if cfg.Post.imclose
@@ -56,5 +58,10 @@ BW = imfill(BW, 'holes');
 % Once, not twice. The level-set path claims at initialization AND after
 % evolution; with no evolution there is nothing to initialize, so the two
 % collapse into one call.
-[perSeed, mask] = cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule);
+%
+% A seed relax excluded (cfg.Post.relaxDiskFallback = false) claims nothing: it
+% would otherwise reach for the nearest component at any distance. Its per-seed
+% entry stays [], so run_batch still writes one (empty) mask per seed.
+perSeed = cell(size(seeds, 1), 1);
+[perSeed(~dropped), mask] = cnngvf.seedMasks(BW, seeds(~dropped, :), cfg.Post.MinArea, cfg.Post.ClaimRule);
 end

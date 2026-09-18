@@ -372,6 +372,10 @@ cfg.Post.fallbackMode = "disk";
 % "relax" bounds, because a lowered threshold on a broad plateau floods.
 cfg.Post.relaxWindow = 128;    % px searched either side of the seed
 cfg.Post.relaxFloor  = 0.10;   % the permissive threshold applied in that window
+% When relax finds nothing claimable (P at the seed <= relaxFloor, or a region
+% under MinArea): true plants the disk, the original recall floor; false EXCLUDES
+% the seed - no disk, and it claims no component either. Threshold mode only.
+cfg.Post.relaxDiskFallback = true;
 
 % imclose(disk 2) before the fill. Justified for the level set as bridging the
 % 1-2 px gaps it leaves along ragged frond boundaries; whether a thresholded map

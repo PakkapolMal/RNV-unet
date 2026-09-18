@@ -194,6 +194,14 @@ assert(~relaxed(30, 230), 'relax leaked to an unrelated background location');
 bare = cnngvf.maskFromProb(P, [seeds; 230 30], rc);
 assert(bare(30, 230), 'relax dropped a seed instead of falling back to the disk');
 
+% relaxDiskFallback = false EXCLUDES that seed instead: no disk, no claim, an
+% empty per-seed entry, and the other seeds' output unchanged.
+nd = rc; nd.Post.relaxDiskFallback = false;
+[bm, bp] = cnngvf.maskFromProb(P, [seeds; 230 30], nd);
+assert(~bm(30, 230) && isempty(bp{end}) && numel(bp) == size(seeds, 1) + 1, ...
+    'relaxDiskFallback = false still produced output for a seed relax found nothing for');
+assert(isequal(bm, cnngvf.maskFromProb(P, seeds, rc)), 'excluding one seed changed the others');
+
 % Post.tau must reach the output, or a tau sweep would measure nothing.
 c = cfg; c.Post.tau = 0.95;
 assert(nnz(cnngvf.maskFromProb(P, seeds, c)) < nnz(mask), ...
