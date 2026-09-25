@@ -4,12 +4,16 @@ description: Remove the GVF+DRLSE block, promote the existing threshold, and mak
 kind: implementation-brief
 audience: Claude Code
 target: RNV-Claude/CNN+GVF, MATLAB R2026a
-status: to implement
+status: done — executed 2026-09-03 to 2026-09-16
 ---
 
 # Reduced Pipeline — Implementation Instructions
 
-Read [UNCLUSTERED.md](../UNCLUSTERED.md) first. It is the source of truth. Where this
+> **Executed brief.** Kept as written. Outcome:
+> [../results/2026-09-16-reduce.md](../results/2026-09-16-reduce.md). The level set it made
+> switchable was deleted on 2026-09-25; code at tag `archive/pre-cleanup`.
+
+Read [UNCLUSTERED.md](../SPEC.md) first. It is the source of truth. Where this
 document and UNCLUSTERED.md disagree, UNCLUSTERED.md wins and you should stop and say so.
 
 ## Objective

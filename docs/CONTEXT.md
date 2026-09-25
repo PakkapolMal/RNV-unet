@@ -4,7 +4,7 @@ description: The canonical vocabulary of the RNV segmentation context. One term,
 kind: glossary
 status: current
 dataset: DRAC22 + TUH (68 images)
-updated: 2026-08-31
+updated: 2026-09-25
 ---
 
 # RNV Segmentation
@@ -13,8 +13,8 @@ Turning localization points into lesion boundaries on OCTA en-face retinal
 images. A prior stage says *where* a lesion is; this context decides *what
 shape* it is.
 
-Implementation: [`../CNN+GVF/`](../CNN+GVF/). Specification and measurements:
-[UNCLUSTERED.md](UNCLUSTERED.md). Theory: [CLAUDE.md](CLAUDE.md).
+Implementation: [`../cnn/`](../cnn/). Specification: [SPEC.md](SPEC.md). Measurements:
+[results/](results/). Theory: [THEORY.md](THEORY.md).
 
 ## Language
 
@@ -136,27 +136,11 @@ per-seed patches. Regions no seed reaches stay 0 by design. The measured
 bottleneck of the whole pipeline.
 _Avoid_: prediction, output, softmax, confidence map
 
-**Force Field**:
-`f = |∇P|`, the energy field the GVF diffuses. A *boundary* map, never `P`
-itself: the field of `P` points at lesion cores and collapses the front.
-_Avoid_: edge map, energy, gradient
-
-**GVF Field**:
-`(u,v)`, the Gradient Vector Flow diffusion of the force field. Extends a
-force that exists only near a boundary across the whole image, giving capture
-range and reach into concavities.
-_Avoid_: flow, vector field, gradient field
-
-**Edge Stopper**:
-`g`, small where `P` has a strong boundary. The brake that keeps the front from
-crossing an edge.
-_Avoid_: stopping function, edge indicator, g-function
-
-**Level Set**:
-`φ`, the signed function whose zero crossing is the contour — negative inside.
-One `φ` holds every lesion in an image and splits and merges natively, which is
-why there is no per-lesion bookkeeping.
-_Avoid_: phi (in prose), contour, snake, front
+**Seed Fallback**:
+What a seed gets when the threshold left it with nothing — about 30% of seeds, for whom
+it *is* the output. Currently **relax**: threshold `P` once at a low floor near the seed
+and take the component under it; a small disk only when that finds nothing claimable.
+_Avoid_: rescue, backup, default mask
 
 ### Experiments
 
@@ -182,3 +166,30 @@ What one scored row represents — a whole image (`"image"`) or a single seed
 (`"segment"`). The two are not comparable, and only `"image"` is valid across
 both datasets.
 _Avoid_: metric level, granularity, scope
+
+### Retired
+
+Terms for the GVF + level-set stages deleted on 2026-09-25. They survive in
+[results/](results/) and nowhere in the code.
+
+**Force Field**:
+`f = |∇P|`, the energy field the GVF diffuses. A *boundary* map, never `P`
+itself: the field of `P` points at lesion cores and collapses the front.
+_Avoid_: edge map, energy, gradient
+
+**GVF Field**:
+`(u,v)`, the Gradient Vector Flow diffusion of the force field. Extends a
+force that exists only near a boundary across the whole image, giving capture
+range and reach into concavities.
+_Avoid_: flow, vector field, gradient field
+
+**Edge Stopper**:
+`g`, small where `P` has a strong boundary. The brake that keeps the front from
+crossing an edge.
+_Avoid_: stopping function, edge indicator, g-function
+
+**Level Set**:
+`φ`, the signed function whose zero crossing is the contour — negative inside.
+One `φ` holds every lesion in an image and splits and merges natively, which is
+why there is no per-lesion bookkeeping.
+_Avoid_: phi (in prose), contour, snake, front

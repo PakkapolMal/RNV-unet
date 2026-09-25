@@ -1,179 +1,19 @@
-# RNV-Claude/CNN+GVF
+---
+title: Clustered vs Unclustered Seeds, 17 DRAC22 Images
+description: The first cross-validated results, the level-set contribution on the 17-image domain, and the design deviations from the original study.
+kind: measurement-record
+status: historical — 17-image domain, level-set pipeline
+dataset: DRAC22 (17)
+updated: 2026-08-19
+---
 
-A seed-conditioned U-Net predicts a probability map, the map drives a Gradient Vector Flow
-field, and a DRLSE level set evolves in that field to the final mask.
+# Clustered vs Unclustered Seeds — 17 DRAC22 Images
 
-**Specification and measurements: [../docs/UNCLUSTERED.md](../docs/UNCLUSTERED.md).**
-Vocabulary: [../docs/CONTEXT.md](../docs/CONTEXT.md). Theory:
-[../docs/CLAUDE.md](../docs/CLAUDE.md). Original design study:
-[../docs/spec.md](../docs/spec.md).
-
-> **The measured numbers further down this file are DRAC22-only**, from before TUH was
-> added. They remain valid as history — the mechanisms they establish are
-> domain-independent — but the domain is now 68 images, and no combined figure has been
-> measured. Read UNCLUSTERED.md for the current picture.
-
-> **Branches (2026-09-17).**
->
-> - **`master`** has the GVF + DRLSE (level-set) pipeline at its best measured version.
-> - **`reduce-pipeline`** (this branch) is the reduced pipeline. It has the refinement record
->   ([../docs/REFINE.md](../docs/REFINE.md), [../docs/REFINE_RESULTS.md](../docs/REFINE_RESULTS.md),
->   the updated known limits in UNCLUSTERED.md) and the adopted configuration: relax set per arm
->   (`DRACTUH_unclustered`: `fallbackMode = "relax"`, `relaxFloor = 0.20`, threshold mode only;
->   `initPhi` always plants disks, so the level set is unaffected). With `cfg.Post.mode =
->   "threshold"` that arm is the best measured configuration: 0.5097 at floor 0.20, 0.5061
->   cross-fitted over 68 images. Verified on this branch: threshold 0.5097 and level set 0.4708,
->   both to 5e-16 per image.
-> - **`reduce-refine`** has the rest of the refinement code, none of it adopted: `run_refine.m`,
->   `cnngvf.crossFit`, `pairedStats`, `refineScore`, `seedFeatures`, `d4`; the rejected flags
->   `Post.claimMaxDist`, `Post.relaxAlpha`, `Infer.tta` (all off by default); the per-seed trace
->   from `maskFromProb`; and the `Post` block in run summaries.
-
-```
-+cnngvf/                package - one stage per file, all take a cfg struct
-  defaults.m            config, dataset registry, toolbox guard, GPU flag
-  manifest.m            the image domain: name -> image, mask, dataset
-  loadPoints.m          localization points across every active dataset
-  arm.m                 named configurations (datasets, points, channels, paths)
-  valSplit.m            derive the validation split across datasets + area range
-  loadChannels.m        image -> [intensity, Frangi vesselness]
-  seedPatch.m           crop geometry + Gaussian seed heat-map (shared)
-  prepareData.m         seeds -> train/val patch datastores
-  trainNet.m            unet + generalized Dice -> the arm's model file
-  inferProbMap.m        batched patch inference + windowed stitch -> P
-  buildForce.m          P -> GVF energy field f
-  gvfField.m            f -> GVF field (u,v)
-  initPhi.m             P + seeds -> phi0
-  drlse.m               level-set evolution in the GVF field
-  seedMasks.m           split a mask into the component each seed claims
-  segGtFile.m           seed -> its SegmentFilledGT path (DRAC22 only)
-  cvFolds.m             deterministic area-stratified folds over the domain
-  evaluate.m            scoring, per-segment or whole-image (cfg.EvalMode)
-  segmentImage.m        all of the above, one image
-  writeSummary.m        run_summary.txt, shared by run_batch and run_eval
-run_train.m             train an arm            run_train("DRACTUH_unclustered")
-run_batch.m             segment + score an arm  run_batch("DRACTUH_unclustered")
-run_cv.m                k-fold, every image out-of-sample
-run_steps.m             one image, every intermediate written out
-run_eval.m              re-score cached masks, no GPU, no re-segmentation
-run_ablate.m            post-processing variants off cached P, no GPU
-run_confirm_relax.m     leakage-free check of the relax fallback floor
-run_oracle_seeds.m      GT-filtered seeds - an upper bound, never a score
-test_cnngvf.m           self-check, 8 checks
-run_train_unclustered.m  ]  thin wrappers on the frozen DRAC22-only arm
-run_batch_unclustered.m  ]
-run_batch_unbalanced.m  score the archived pre-balancing network
-```
-
-## The domain
-
-68 ground-truth images across two datasets, pooled:
-
-| dataset | images | unclustered points | usable for training | mask naming |
-|---|---|---|---|---|
-| DRAC22 | 41 | 283 | 259 | `458.png` -> `FilledGT/458.png` |
-| TUH | 27 | 591 | 583 | `nv (1).png` -> `nvGtImages/gt (1).png` |
-
-`cnngvf.manifest` is the single place that resolves an image to its mask, because the two
-datasets do not name them the same way. Adding a dataset is one entry in `cfg.Datasets`.
-
-The localization points come from separate research and contain errors. 81 of 874 fall
-outside every lesion, but they split cleanly into **49 boundary near-misses** (median 7.8 px,
-kept and labelled with the lesion they missed) and **32 genuine detector errors** (>100 px,
-rejected) — with nothing at all between 50 and 100 px. `cfg.Patch.seedTolerance = 20` draws
-the line. Rejection uses ground truth, so it applies to **training only**: all 874 points
-still seed inference.
-
-## Arms
-
-| arm | datasets | points | channels | output |
-|---|---|---|---|---|
-| `clustered` | DRAC22 | clustered | 3 | `result/` |
-| `unclustered` | DRAC22 | unclustered | 2 | `result/unclustered/` |
-| **`DRACTUH_unclustered`** | DRAC22 + TUH | unclustered | 2 | `result/DRACTUH_unclustered/` |
-
-An arm fixes everything that has to agree between training and inference. All the runners
-take an arm name; `+cnngvf/arm.m` is the only file to edit to add one.
-
-## Requirements
-
-**MATLAB R2026a.** Needs Image Processing, Deep Learning, Computer Vision and (for the GPU
-path) Parallel Computing Toolbox. R2025b on this machine has Image Processing only and will
-fail immediately with a message from `cnngvf.defaults`.
-
-**GPU memory.** At patch 512 an 8 GB laptop GPU has little headroom: the first attempt with
-`MiniBatchSize` 4 died out of memory at iteration 0, in the initial validation pass.
-`cfg.Net.miniBatch` is therefore 2 (validation follows `MiniBatchSize` — `trainingOptions`
-exposes no `ValidationMiniBatchSize` for `adam`), and `cnngvf.trainNet` calls `gpuDevice(1)`
-first so a stale allocation from an earlier run cannot starve it. Steady-state use is then
-~1.1 GB of 8 GB. On a larger card, raising `miniBatch` is the first thing to try for speed.
-
-## Usage
-
-```matlab
-cd RNV-Claude/CNN+GVF
-
-test_cnngvf                            % verify the install first
-
-% the current arm: DRAC22 + TUH, 68 images
-run_train                              % -> models/rnvNet_DRACTUH_unclustered.mat
-run_batch("DRACTUH_unclustered")       % -> result/DRACTUH_unclustered/
-run_cv                                 % 5 folds, every image out-of-sample
-
-% inspect one image, every stage written out
-run_steps("458.png")                   % a DRAC22 image
-run_steps("nv (21).png")               % a TUH image
-
-% the frozen DRAC22-only arm
-run_train("unclustered")
-run_batch("unclustered")
-
-% re-score masks that already exist - no GPU, ~1 s instead of ~205 s
-run_eval(fullfile(cnngvf.defaults().Paths.Output, 'DRACTUH_unclustered'));
-
-cfg = cnngvf.arm(cnngvf.defaults(), "DRACTUH_unclustered");   % anything is overridable
-cfg.Drlse.iter = 600;
-run_batch(cfg);
-```
-
-Output goes to `RNV-Claude/CNN+GVF/result/`:
-- `combined/<stem>.png` — union mask per image
-- `segment/<stem>-<x>-<y>.png` — one mask per seed, named like the ground truth
-- `overlay/<stem>.png` — image + seeds + final contours
-- `prob/<stem>.png` — the CNN probability map, for diagnosing the force field
-- `per_segment.csv` or `per_image.csv` (by `cfg.EvalMode`), `run_summary.txt`
-
-Subdirectories hold the comparison runs: `clustered_image/` is the clustered pipeline scored
-whole-image, `unclustered/` is the unclustered pipeline. `combined/` and `prob/` in
-`result/` and `result/clustered_image/` are pixel-identical — same model, same seeds, only
-the scoring differs.
-
-## Evaluation
-
-Metrics come from `rnv.metrics`, reused from `main/` so both pipelines are scored by
-identical code. `cfg.EvalMode` picks the unit — see "Two point sets, two units of evaluation"
-below for which to use when.
-
-In `"segment"` mode, two consequences are worth knowing:
-
-- **Ground-truth components no seed claims are not scored** — `separate_segments.py` writes
-  no file for them. That is a property of the localization stage, not of this segmenter, so
-  `evaluate` reports it separately as `unclaimedGtPx` instead of folding it into recall.
-  `"image"` mode does charge for them, which is why its recall is much lower.
-- **Two seeds inside one lesion both score against that lesion**, because the ground truth
-  is written per seed, not per component. `cnngvf.seedMasks` mirrors that.
-
-## How it differs from RNV-Claude/main
-
-`main/` segments each seed independently with a parametric `Snake2D` and ORs the results.
-Here **one level set evolves over the whole image** and the seeds only decide afterwards which
-components survive. That is what lets a single lesion split into fronds — `458.png` has 12
-ground-truth components against 7 seeds — which a parametric contour cannot do.
-
-`rnv.loadSeeds`, `rnv.loadImage`, `rnv.loadMask` and `rnv.saveOverlay` are reused from
-`main/+rnv` rather than copied; `cnngvf.defaults` puts `main/` on the path. The package is
-named `+cnngvf` and not `+rnv` precisely so that reuse is possible — two folders named `+rnv`
-on the MATLAB path would shadow each other.
+> **Record.** Moved verbatim from `CNN+GVF/README.md` on 2026-09-25. Every number here is
+> the **17-image DRAC22 domain** under the level-set pipeline; not comparable with the
+> 41- or 68-image figures. The code that produced them is at tag `archive/pre-cleanup`
+> (runner names and paths below are as they were then). Current state:
+> [../SPEC.md](../SPEC.md).
 
 ## Two point sets, two units of evaluation
 
@@ -356,7 +196,7 @@ been tested and is too speckled to supply it.
 
 The raggedness index (perimeter / √area) shows the level set produces 4.75 against a ground
 truth of 6.31 — it *is* over-smoothing RNV's fern-like boundary, which
-[../docs/CLAUDE.md](../docs/CLAUDE.md) warns about for the snake's β. But that smoothing
+[../docs/CLAUDE.md](../THEORY.md) warns about for the snake's β. But that smoothing
 survives a 25× cut in `lambda`, so it comes from the distance-regularized evolution itself,
 not the curvature weight.
 

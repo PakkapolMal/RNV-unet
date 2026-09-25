@@ -13,8 +13,8 @@ updated: 2026-08-11
 > description of what was built. Several of its recommendations were measured and
 > reversed — `f = P` as a force source, a balloon term of ±1.5, a 256 px patch — and
 > the module layout it proposes is not the one that exists. The working
-> specification is [UNCLUSTERED.md](UNCLUSTERED.md); the vocabulary is
-> [CONTEXT.md](CONTEXT.md). Kept for the literature review, the parameter ranges and
+> specification is [SPEC.md](../SPEC.md); the vocabulary is
+> [CONTEXT.md](../CONTEXT.md). Kept for the literature review, the parameter ranges and
 > the reasoning behind the overall architecture, all of which still hold.
 
 ## TL;DR

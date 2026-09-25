@@ -5,12 +5,16 @@ kind: implementation-brief
 audience: Claude Code
 target: RNV-Claude/CNN+GVF, MATLAB R2026a
 depends-on: REDUCE.md, REDUCE_RESULTS.md, UNCLUSTERED.md
-status: to implement
+status: done — executed 2026-09-17
 ---
 
 # Refinement Plan — Inference-Only Gains on Reduced + Relax 0.20
 
-Read [UNCLUSTERED.md](UNCLUSTERED.md) and [REDUCE_RESULTS.md](REDUCE_RESULTS.md) first.
+> **Executed brief.** Kept as written. Outcome:
+> [../results/2026-09-17-refine.md](../results/2026-09-17-refine.md); code at tag
+> `archive/reduce-refine`.
+
+Read [UNCLUSTERED.md](../SPEC.md) and [REDUCE_RESULTS.md](../results/2026-09-16-reduce.md) first.
 Where this document disagrees with either, stop and say so. Do not resolve it yourself.
 
 ## Objective

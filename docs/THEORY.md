@@ -1,6 +1,12 @@
-# CLAUDE.md — Theory Reference (RNV Segmentation)
+# Theory Reference (RNV Segmentation)
 
-Theory behind this repo, compiled from `/wiki`. Source notes: `wiki/index.md`,
+> **Background, not a description of this repo's code.** Formerly `docs/CLAUDE.md`.
+> Sections 1, 2 and 6 describe the parametric-snake pipeline (Kroon's `Snake2D`, the
+> `RNV-Cursor` scripts and their rewrite in `main/`, which is at tag `archive/pre-cleanup`);
+> the current pipeline is in [SPEC.md](SPEC.md). Sections 3–5 are literature background that
+> still applies. The file paths below are relative to the parent research workspace.
+
+Theory compiled from `/wiki`. Source notes: `wiki/index.md`,
 `wiki/Mathematical_Formulas.md`, `wiki/Snake_Active_Contour.md`,
 `wiki/RNV_Localization_OCTA.md`, `wiki/Enhancing_Fine_Vessel_Segmentation.md`,
 `wiki/Unsupervised_Vessel_Segmentation_Curvelet_FCM.md`.
