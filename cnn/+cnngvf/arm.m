@@ -55,6 +55,7 @@ cfg.Patch.seedTolerance = a.seedTolerance;
 cfg.Post.ClaimRule    = a.claimRule;
 cfg.Post.fallbackMode = "disk";
 
+cfg.CV.reference = "";   % frozen arms have no reference on master
 cfg.CV.ModelArm = a.cvModelArm;
 if strlength(cfg.CV.ModelArm) == 0
     cfg.CV.ModelArm = cfg.Arm;

@@ -4,8 +4,8 @@ function test_cnngvf()
 %  test_cnngvf
 %
 %  The post-CNN checks run on synthetic data - no trained network - by
-%  stubbing the CNN with a blurred, noised copy of a known mask. The domain,
-%  arm and segment-naming checks need the datasets mounted.
+%  stubbing the CNN with a blurred, noised copy of a known mask. The prob
+%  cache, run_cache, domain, arm and segment-naming checks need the datasets.
 %
 %  See also CNNGVF.DEFAULTS, RUN_TRAIN, RUN_BATCH.
 
@@ -16,6 +16,7 @@ testPatchGeometry(cfg);
 testMaskFromProb(cfg);
 testSeedComponents(cfg);
 testProbCache(cfg);
+testRunCache(cfg);
 testDomain(cfg);
 testArms(cfg);
 testSeedTolerance(cfg);
@@ -225,6 +226,40 @@ assertErrorId(@() cnngvf.probCache("read", cacheDir, held, cfg), ...
     'cnngvf:probCache:noFold', 'a P with no fold index was accepted');
 
 fprintf('  prob cache                ok (single, fold-guarded)\n');
+end
+
+
+function testRunCache(cfg)
+% run_cache is how a post-P change is verified, so its plumbing must be exact:
+% it scores precisely the cached images, pairs each with its own seeds and
+% mask, and reports a zero difference against a matching reference.
+folds = cnngvf.cvFolds(cfg);
+img   = folds{1}(1);
+M     = cnngvf.manifest(cfg);
+gt    = cnngvf.loadMask(M.GtPath(M.Name == img));
+P     = single(imgaussfilt(double(gt), 3));
+
+tmp = tempname;
+cleanup = onCleanup(@() rmdir(tmp, 's'));
+cacheDir = fullfile(tmp, 'probcache');
+cnngvf.probCache("write", cacheDir, img, P, struct('fold', 1, 'arm', "test"));
+
+[names, seeds] = cnngvf.loadPoints(cfg);
+expected = cnngvf.metrics(cnngvf.maskFromProb(double(P), seeds(names == img, :), cfg), gt).iou;
+
+c = cfg;
+c.Paths.Output  = tmp;
+c.CV.reference  = fullfile(tmp, 'ref.csv');
+writetable(table(img, expected, 'VariableNames', {'Image', 'Iou'}), c.CV.reference);
+
+[perImage, ~, maxDiff] = run_cache(c, cacheDir);
+assert(height(perImage) == 1 && perImage.Image == img, 'run_cache scored the wrong image set');
+assert(perImage.Iou == expected, 'run_cache IoU %.6f differs from maskFromProb %.6f', ...
+    perImage.Iou, expected);
+% Not exactly 0: writetable keeps 15 significant digits.
+assert(maxDiff < 1e-12, 'run_cache reported %.3g against a matching reference', maxDiff);
+
+fprintf('  run_cache                 ok (%s, reference diff %.1g)\n', img, maxDiff);
 end
 
 

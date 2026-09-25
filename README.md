@@ -16,8 +16,10 @@ scoring, current configuration (`cnngvf.defaults()`):
 | cross-fitted per fold | **0.5061** | 0.5371 | 0.6428 | 0.6025 | 0.7868 |
 
 The same `P` through the deleted GVF + level-set stage scored 0.4708. Source:
-[docs/results/2026-09-17-refine.md](docs/results/2026-09-17-refine.md). This table is the
-only place the current number is quoted; update it here when it changes.
+[docs/results/2026-09-17-refine.md](docs/results/2026-09-17-refine.md); per image:
+[docs/results/reference/2026-09-17-relax-0.20.csv](docs/results/reference/2026-09-17-relax-0.20.csv),
+which `run_cache` checks against. This table is the only place the current number is quoted;
+update it here when it changes.
 
 ## Run it
 
@@ -27,6 +29,7 @@ test_cnngvf          % self-check
 run_cv               % train + score 5 folds (~18 h); cfg.CV.skipTrain reuses networks
 run_batch            % segment every image with the single trained network
 run_steps("458.png") % every intermediate stage of one image
+run_cache            % score the cached CV P; reproduces the table above in seconds
 ```
 
 Datasets (`RNV-DRAC22NV/`, `RNV-DRAC22GT/`, `TUH/`) sit next to this repo, outside it.
@@ -36,6 +39,7 @@ Details: [cnn/README.md](cnn/README.md).
 
 | path | what it is |
 |---|---|
+| [`CLAUDE.md`](CLAUDE.md) | rules for coding agents: which docs to update, what to verify, what to ask first |
 | [`cnn/`](cnn/) | the pipeline: package `+cnngvf`, runners, self-check |
 | [`docs/SPEC.md`](docs/SPEC.md) | how the current pipeline works and why — current state only |
 | [`docs/CONTEXT.md`](docs/CONTEXT.md) | glossary: one term, one meaning |

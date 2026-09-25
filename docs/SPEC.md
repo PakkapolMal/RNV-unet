@@ -313,7 +313,7 @@ archives any existing network with a timestamp before saving.
 
 ```matlab
 cd RNV-Claude/cnn
-test_cnngvf                            % 8 checks; four need the datasets mounted
+test_cnngvf                            % 9 checks; five need the datasets mounted
 
 run_train                              % -> models/rnvNet_DRACTUH_unclustered.mat
 run_batch                              % -> result/DRACTUH_unclustered/  (mostly in-sample)
@@ -322,6 +322,7 @@ run_cv                                 % the reportable number: 5 folds over 68 
 run_steps("458.png")                   % every intermediate, one DRAC22 image
 run_steps("nv (21).png")               % ... or one TUH image
 run_eval(dir)                          % re-score cached masks, ~1 s, no GPU
+run_cache                              % cached CV P through the current post-processing
 
 run_batch("unclustered")               % a frozen arm, by name
 ```
@@ -329,6 +330,11 @@ run_batch("unclustered")               % a frozen arm, by name
 Every runner takes nothing (the current configuration), a frozen arm's name, or a `cfg`
 struct. `cfg.CV.skipTrain = true` makes `run_cv` reuse existing fold networks — inference
 only, minutes instead of ~18 h, and how an interrupted run resumes.
+
+**Verifying a change after `P`.** `run_cache` scores the fold-cached `P`
+(`cfg.CV.probCache`, default `<Output>/cv/probcache`) through the current post-processing
+and compares each image's IoU with `cfg.CV.reference`, the adopted configuration's record in
+`results/reference/`. A refactor reproduces it to ~1e-15; anything larger is a result.
 
 **MATLAB R2026a.** Needs Image Processing, Deep Learning, Computer Vision and Parallel
 Computing. R2025b on this machine has Image Processing only and fails immediately with a
@@ -378,8 +384,8 @@ seeds (S x 2) ─────────────────┴──► in
 
 Above the stages sit three domain files: `manifest` (which images), `loadPoints` (which
 seeds), `defaults`/`arm` (which configuration). `probCache` persists `P` per fold during
-`run_cv`, so a post-processing change can be scored in seconds, and refuses to hand back a `P`
-whose network trained on that image.
+`run_cv`, so `run_cache` can score a post-processing change in seconds, and refuses to hand
+back a `P` whose network trained on that image.
 
 ### Arms
 

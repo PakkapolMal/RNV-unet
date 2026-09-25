@@ -25,10 +25,11 @@ function [perImage, summary] = run_cv(cfg)
 %  concatenates the folds into <Output>/cv/per_image.csv. Output is already
 %  arm-specific, so this cannot overwrite an earlier arm's record.
 %
-%  Also caches each fold's probability maps to <Output>/cv/probcache/, stamped
-%  with the fold that held the image out. That is what lets a post-processing
-%  change be scored off cached P in seconds instead of another 18 h here, and
-%  cnngvf.probCache re-checks the stamp before anything is scored.
+%  Also caches each fold's probability maps to cfg.CV.probCache (default
+%  <Output>/cv/probcache/), stamped with the fold that held the image out. That
+%  is what lets run_cache score a post-processing change in seconds instead of
+%  another 18 h here, and cnngvf.probCache re-checks the stamp before anything
+%  is scored.
 %
 %  cfg.CV.skipTrain reuses existing fold networks instead of training them:
 %
@@ -79,6 +80,10 @@ k = numel(folds);
 
 % cfg.Paths.Output is already arm-specific, so 'cv' under it is enough.
 cvRoot   = fullfile(cfg.Paths.Output, 'cv');
+cacheDir = cfg.CV.probCache;              % read back by run_cache
+if strlength(cacheDir) == 0
+    cacheDir = fullfile(cvRoot, 'probcache');
+end
 modelDir = fullfile(fileparts(cfg.Paths.Model), 'cv');
 for d = string({cvRoot, modelDir})
     if ~exist(d, 'dir'), mkdir(d); end
@@ -141,7 +146,7 @@ for f = 1:k
     bc.Images       = test;
     bc.Paths.Output = fullfile(cvRoot, sprintf('fold%d', f));
     bc.Fold         = f;                                  % stamped into the P cache
-    bc.Cache.Prob   = fullfile(cvRoot, 'probcache');
+    bc.Cache.Prob   = cacheDir;
     run_batch(bc);
 end
 

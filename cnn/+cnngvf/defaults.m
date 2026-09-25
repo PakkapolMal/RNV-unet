@@ -154,6 +154,14 @@ cfg.CV.ModelArm = cfg.Arm;
 % re-checks the fold of every cached P before anything scores it.
 cfg.CV.skipTrain = false;
 
+% Where run_cv caches P per fold, and run_cache reads it. "" = <Output>/cv/probcache.
+cfg.CV.probCache = "";
+
+% The per-image record run_cache compares against: the adopted configuration's
+% cross-validated scores. A new adoption adds a new file here; old ones stay.
+cfg.CV.reference = fullfile(fileparts(mainDir), 'docs', 'results', 'reference', ...
+    '2026-09-17-relax-0.20.csv');
+
 % --- Post-processing -------------------------------------------------------
 % P > tau -> seed fallback -> imclose -> imfill -> seedMasks. See
 % cnngvf.maskFromProb, and docs/results/ for why each step is there.

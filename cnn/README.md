@@ -35,8 +35,9 @@ run_train.m             train
 run_batch.m             segment + score every image (mostly in-sample)
 run_cv.m                k-fold, every image out-of-sample - the reportable number
 run_eval.m              re-score cached masks, no GPU
+run_cache.m             score cached cross-validated P, check against the reference
 run_steps.m             one image, every intermediate written out
-test_cnngvf.m           self-check, 8 checks
+test_cnngvf.m           self-check, 9 checks
 ```
 
 ## Requirements
@@ -66,6 +67,7 @@ run_steps("458.png")                   % one DRAC22 image, every stage written o
 run_steps("nv (21).png")               % one TUH image
 
 run_eval(fullfile(cnngvf.defaults().Paths.Output))   % re-score, ~1 s, no GPU
+run_cache                              % cached CV P -> scores + diff vs reference, seconds
 
 cfg = cnngvf.defaults();               % anything is overridable
 cfg.CV.skipTrain = true;               % reuse the fold networks: inference only, minutes
@@ -83,6 +85,7 @@ Output goes to `result/<arm>/`:
 - `prob/<stem>.png` — the CNN probability map
 - `per_image.csv` (or `per_segment.csv`), `run_summary.txt`
 - `cv/` from `run_cv`: per-fold outputs, `probcache/`, and the aggregate `per_image.csv`
+- `cache/` from `run_cache`: `per_image.csv`, `run_summary.txt`
 
 ## Evaluation
 
