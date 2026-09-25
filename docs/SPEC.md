@@ -80,9 +80,23 @@ no filter that reads only `P` came close: stray seeds fire with `P ≈ 1`, so th
 belongs to the localization stage ([results/2026-09-17-refine.md](results/2026-09-17-refine.md),
 step 2).
 
-Two images end up with ground truth but no usable seed — **`299.png` and `445.png`**. They
-are still scored, and score ≈ 0. That is a localization-stage gap charged to the segmenter,
-which is the honest accounting: whole-image scoring charges for lesions missed entirely.
+### Corrected training points for `299.png` and `445.png`
+
+The detector's output is broken on two images. Every detection on **`299.png`** is a detector
+error (four points, 307–726 px from the lesion), and **`445.png`**'s only point, (878, 653),
+is a copy of **`443.png`**'s. Left alone, both contribute no training seed.
+
+Since 2026-09-25 **training** reads `DRAC_RNV_Points_Unclustered_train.csv`
+(`Datasets.UnclusteredTrain`, via `cnngvf.loadPoints(cfg, "", true)`). It is the detector's
+CSV with those five points replaced by one point per image placed from the ground truth:
+`299.png` (490, 47) and `445.png` (878, 373). Training may use ground truth; its labels come
+from it anyway.
+
+**Inference and every score still read the detector's own CSV**, broken points included, so
+both images still score ≈ 0. Seeding them from the ground truth at inference would hand the
+segmenter the answer. That is a localization-stage gap charged to the segmenter, which is the
+honest accounting: whole-image scoring charges for lesions missed entirely. Both CSVs live
+outside version control, next to the images.
 
 ### The TUH acquisition overlay
 
@@ -226,7 +240,7 @@ configuration; the frozen arms' overrides live in [`+cnngvf/arm.m`](../cnn/+cnng
 | item | value |
 |---|---|
 | images | 1024×1024 OCTA en-face — **68 with ground truth**, all seeded (41 DRAC22 + 27 TUH) |
-| training seeds | the unclustered CSVs of both datasets — 874 rows, **842 usable** |
+| training seeds | the unclustered CSVs, with DRAC22's corrected copy — see [Corrected training points](#corrected-training-points-for-299png-and-445png) |
 | inference seeds | **all 874** — rejection uses ground truth, so it cannot apply at inference |
 | labels | the GT component containing each seed, or the nearest within `Patch.seedTolerance` |
 | scoring | union mask vs the whole GT mask (`EvalMode = "image"`) |
@@ -470,8 +484,10 @@ contending for one laptop GPU is slower than serial.
   pre-registered 0.5. Untested as a result; it would need cross-fitting.
 - **The TUH acquisition overlay is still in the images.** Straight-line false positives are the
   symptom to watch for.
-- **`299.png` and `445.png` have ground truth but no usable seed** and score ≈ 0. If the
-  headline is meant to measure segmentation alone, they need re-localizing, not excluding.
+- **`299.png` and `445.png` have broken detector points** and score ≈ 0. Training uses
+  ground-truth-placed points for them; inference must not. Every cross-validated number so far
+  (including the reference) was trained without those two points, so the next `run_cv`
+  that trains is not paired with it on those images.
 - **The balanced-sampling gain is unverified.** Every cross-validated arm used it.
 - **Cross-validation costs ~18 h** at `perSeed = 4` / 20 epochs. `cfg.CV.skipTrain` makes any
   post-`P` change inference-only.

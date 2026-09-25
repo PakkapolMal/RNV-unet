@@ -289,6 +289,12 @@ end
 assert(all(ismember(names, M.Name)), 'loadPoints returned an out-of-domain image');
 assert(size(seeds, 1) == numel(names), 'names and seeds disagree in length');
 
+% Training may read corrected points; inference must not. The two sets may
+% differ only on images the training CSV corrects, never in the domain.
+[tn, ts] = cnngvf.loadPoints(cfg, "", true);
+assert(all(ismember(tn, M.Name)) && size(ts, 1) == numel(tn), ...
+    'the training point set is malformed or leaves the domain');
+
 % Folds partition the domain exactly once - the property the whole
 % out-of-sample claim rests on.
 folds = cnngvf.cvFolds(cfg);
