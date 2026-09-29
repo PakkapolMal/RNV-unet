@@ -62,11 +62,6 @@ cfg.Datasets(1).GtFrom      = "^(.*)$";
 cfg.Datasets(1).GtTo        = "$1";
 cfg.Datasets(1).Clustered   = fullfile(drac, 'DRAC22_RNV_Localization_Points_Sorted.csv');
 cfg.Datasets(1).Unclustered = fullfile(drac, 'DRAC_RNV_Points_Unclustered.csv');
-% Training reads a copy with the broken detections of 299.png and 445.png
-% replaced by points placed from ground truth. Never at inference: that would
-% be using the answer to choose the question. docs/SPEC.md, "Corrected
-% training points".
-cfg.Datasets(1).UnclusteredTrain = fullfile(drac, 'DRAC_RNV_Points_Unclustered_train.csv');
 
 % ZEISS PLEX Elite. The burned-in acquisition overlay is deliberately left in
 % (docs/SPEC.md, "The TUH acquisition overlay").
@@ -78,7 +73,6 @@ cfg.Datasets(2).GtFrom      = "^nv (.*)$";
 cfg.Datasets(2).GtTo        = "gt $1";
 cfg.Datasets(2).Clustered   = fullfile(tuh, 'TUH_RNV_Localization_Points.csv');
 cfg.Datasets(2).Unclustered = fullfile(tuh, 'TU_RNV_Points_Unclustered.csv');
-cfg.Datasets(2).UnclusteredTrain = "";   % "" = train on the inference points
 
 cfg.ActiveDatasets = [cfg.Datasets.Name];
 cfg.Points         = "unclustered";

@@ -1,13 +1,8 @@
-function [names, seeds] = loadPoints(cfg, which, forTraining)
+function [names, seeds] = loadPoints(cfg, which)
 %CNNGVF.LOADPOINTS Localization points across every active dataset.
 %
 %  [names, seeds] = cnngvf.loadPoints(cfg)            % cfg.Points
 %  [names, seeds] = cnngvf.loadPoints(cfg, "clustered" | "unclustered")
-%  [names, seeds] = cnngvf.loadPoints(cfg, "", true)   % the training point set
-%
-%  forTraining reads a dataset's UnclusteredTrain CSV where one is set - points
-%  corrected against ground truth, which training may use and inference must
-%  not. Everything else, including every score, reads the detector's output.
 %
 %  names : N x 1 string, image file name per point
 %  seeds : N x 2 double, [cx cy] = (column, row)
@@ -30,9 +25,6 @@ function [names, seeds] = loadPoints(cfg, which, forTraining)
 if nargin < 2 || strlength(which) == 0
     which = cfg.Points;
 end
-if nargin < 3
-    forTraining = false;
-end
 which = lower(string(which));
 
 switch which
@@ -53,9 +45,6 @@ for d = 1:numel(cfg.Datasets)
     end
 
     csv = Ds.(field);
-    if forTraining && field == "Unclustered" && strlength(Ds.UnclusteredTrain) > 0
-        csv = Ds.UnclusteredTrain;
-    end
     if strlength(csv) == 0
         error('cnngvf:loadPoints:noCsvField', ...
             'Dataset "%s" defines no %s point set.', Ds.Name, which);

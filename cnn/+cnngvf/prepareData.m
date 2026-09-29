@@ -36,10 +36,9 @@ function [dsTrain, dsVal, info] = prepareData(cfg)
 %  See also CNNGVF.MANIFEST, CNNGVF.LOADPOINTS, CNNGVF.TRAINNET, CNNGVF.SEEDPATCH.
 
 % The domain: every image with ground truth, across the active datasets.
-% cnngvf.loadPoints has already dropped points on images outside it. The
-% training point set, which may carry ground-truth corrections.
+% cnngvf.loadPoints has already dropped points on images outside it.
 M = cnngvf.manifest(cfg);
-[names, seeds] = cnngvf.loadPoints(cfg, "", true);
+[names, seeds] = cnngvf.loadPoints(cfg);
 
 images = unique(names, 'stable');
 
