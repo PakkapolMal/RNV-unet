@@ -29,7 +29,12 @@ for g = 1:G
     rows{g} = run_cache(cfg, cacheDir);
 end
 iou = cell2mat(cellfun(@(t) t.Iou, rows', 'UniformOutput', false));
-fold = rows{1}.Fold;
+[~, info] = cnngvf.cvFolds(cfg0);
+[~, loc] = ismember(rows{1}.Image, info.Image);
+fold = info.Fold(loc);
+ref = readtable(cfg0.CV.reference, 'TextType', 'string');
+[~, r] = ismember(rows{1}.Image, ref.Image);
+assert(all(loc > 0) && isequal(fold, ref.Fold(r)), 'cvFolds disagrees with the reference folds');
 dset = string(rows{1}.Dataset);
 
 surface = grid;

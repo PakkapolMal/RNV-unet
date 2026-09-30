@@ -57,6 +57,7 @@ Details: [cnn/README.md](cnn/README.md).
 | [2026-09-17 seedless](docs/results/2026-09-17-seedless.md) | `P` from whole-frame tiles, seeds only claim? | failed its pilot gate |
 | [2026-09-17 refine](docs/results/2026-09-17-refine.md) | any inference-only gain on top? | none; relax 0.20 locked |
 | [2026-09-18](docs/results/2026-09-18-relax-no-disk.md) | drop seeds relax cannot serve? | no, −0.0006 |
+| [2026-09-30](docs/results/2026-09-30-relax-grid.md) | tune the relax window × floor? | no, −0.0098 cross-fitted; 128 px is the best window |
 
 ## History
 
@@ -68,6 +69,7 @@ Code for rejected or superseded work is kept as tags rather than as switches in 
 | `archive/levelset-master` | `master` as the best GVF + DRLSE version |
 | `archive/reduce-refine` | the refinement code: `run_refine`, cross-fitting, seed features, TTA |
 | `archive/seedless-prob` | the seedless `P` arm and tiled inference |
+| `archive/relax-grid` | `run_relax_grid`: relax window × floor, cross-fitted off the CV cache |
 
 ## How work is recorded
 

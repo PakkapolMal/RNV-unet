@@ -313,8 +313,8 @@ archives any existing network with a timestamp before saving.
 |---|---|---|
 | `Post.tau` | **0.5** | pre-registered decision boundary; never tuned on scored images |
 | `Post.fallbackMode` | **`"relax"`** | shape from `P` for seeds the threshold missed; `"disk"` on the frozen arms |
-| `Post.relaxFloor` | **0.20** | pre-registered; confirmed cross-fitted |
-| `Post.relaxWindow` | 128 px | stops a low floor flooding a broad plateau |
+| `Post.relaxFloor` | **0.20** | fixed after the 2026-09-16 sweep; re-tuning it jointly with the window loses 0.0098 cross-fitted ([results](results/2026-09-30-relax-grid.md)) |
+| `Post.relaxWindow` | 128 px | stops a low floor flooding a broad plateau; the best of 64 / 128 / 256 / 512 at every floor 0.10–0.25 ([results](results/2026-09-30-relax-grid.md)) |
 | `Post.seedRadius` | 15 px | the disk when relax finds nothing claimable |
 | `Post.MorphElement` | `strel('disk', 2)` | `imclose` before `imfill` |
 | `Post.MinArea` | 500 px | components below it cannot be claimed |
