@@ -217,32 +217,7 @@ far = seeds; far(3, :) = [100 + d/2, 100 + 1.2*d];   % one edge longer than d
 [~, m2] = cnngvf.seedHull(perSeed, mask, far, cfg);
 assert(isequal(m2, mask), 'a triangle with an edge beyond hullLink was filled');
 
-% Claim rule (docs/briefs/seed-hull-claim.md): a triangle across separate
-% components does not fill; one inside a C-shaped component does; a seed that
-% claimed nothing blocks its triangle.
-cfg.Post.hullSameClaim = true;
-two = {blob(100, 100); blob(100, 100 + d); blob(100 + 0.8*d, 100 + d/2); blob(400, 400)};
-m3 = two{1} | two{2} | two{3} | two{4};
-[~, m4] = cnngvf.seedHull(two, m3, seeds, cfg);
-assert(isequal(m4, m3), 'a triangle across separate components was filled');
-
-C = false(512); C(90:190, 90:206) = true; C(110:200, 110:186) = false;   % a C open at the bottom
-sc = [100 95; 196 95; 148 170; 400 400];     % two seeds on the arms, one in the mouth
-pc = {C; C; []; blob(400, 400)};
-[~, m5] = cnngvf.seedHull(pc, C | pc{4}, sc, cfg);
-assert(isequal(m5, C | pc{4}), 'a seed that claimed nothing did not block its triangle');
-pc{3} = C;                                   % the mouth seed claims the C as well
-[~, m6] = cnngvf.seedHull(pc, C | pc{4}, sc, cfg);
-cc = round(mean(sc(1:3, :)));
-assert(m6(cc(2), cc(1)) && ~C(cc(2), cc(1)), 'a triangle inside one claimed component was not filled');
-
-% relaxDisk false: a seed relax cannot serve gets no disk and claims nothing.
-c2 = cfg; c2.Post.hullLink = 0; c2.Post.relaxDisk = false;
-Pz = zeros(512); Pz(50:150, 50:150) = 0.9;
-[mz, pz] = cnngvf.maskFromProb(Pz, [100 100; 400 400], c2);
-assert(isempty(pz{2}) && ~any(mz(380:420, 380:420), 'all'), 'a dropped seed got a disk or a claim');
-
-fprintf('  seed hull                 ok (triangle, long edge, lone seed, off, claim rule, no disk)\n');
+fprintf('  seed hull                 ok (triangle, long edge, lone seed, off)\n');
 end
 
 

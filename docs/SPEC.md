@@ -497,6 +497,11 @@ contending for one laptop GPU is slower than serial.
   scored. A closing at the heat-map scale recovered more on the largest lesions (+0.061 on
   the top quintile) but lost more on every smaller one
   ([results/2026-09-30-seed-hull.md](results/2026-09-30-seed-hull.md)).
+- **The seed hull's precision cost comes from triangles joining two large components.**
+  Their pixels are half lesion. Triangles joining a fallback-sized fragment are 82 % lesion,
+  so fragments belong to their lesions. Blocking every cross-component triangle repairs the
+  guard but costs 0.0028 IoU
+  ([results/2026-10-01-seed-hull-claim.md](results/2026-10-01-seed-hull-claim.md)).
 - **Precision is the weak side**, about 0.13 below recall. The failure mode is
   over-segmentation.
 - **The large-lesion gap is model-side, not patch coverage.** 98% of the largest-quintile ground

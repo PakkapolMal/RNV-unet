@@ -10,6 +10,10 @@ status: pre-registered 2026-10-01, not yet run
 
 # Seed Hull Claim Rule, With and Without the Fallback Disk
 
+> **Executed brief.** Kept as written. Outcome: both arms failed non-inferiority and were
+> rejected: [../results/2026-10-01-seed-hull-claim.md](../results/2026-10-01-seed-hull-claim.md).
+> Code at tag `archive/seed-hull-claim`.
+
 Follow-up to [seed-hull-d.md](seed-hull-d.md). Read its record,
 [../results/2026-09-30-seed-hull-d.md](../results/2026-09-30-seed-hull-d.md), first.
 

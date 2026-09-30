@@ -64,6 +64,7 @@ Details: [cnn/README.md](cnn/README.md).
 | [2026-09-30 paired](docs/results/2026-09-30-relax-floor-015-paired.md) | floor 0.15 vs 0.20, per image? | noise on IoU, +0.0027 CI [−0.003, +0.010]; a precision / recall trade |
 | [2026-09-30 seed hull](docs/results/2026-09-30-seed-hull.md) | fill between seeds linked within 2σ? | no: triangles inert (+0.0002); closing +0.0056 CI [−0.010, +0.022], trips the precision guard |
 | [2026-09-30 seed hull d](docs/results/2026-09-30-seed-hull-d.md) | triangles with a cross-fitted link distance? | adopted at 128 px: +0.0087 CI [+0.002, +0.016], over a failed precision guard (−0.0106) |
+| [2026-10-01](docs/results/2026-10-01-seed-hull-claim.md) | fill only triangles on one claimed component, with or without the disk? | no: guard repaired but −0.0028 IoU; fallback-disk fragment joins are 82 % lesion |
 
 ## History
 
@@ -77,6 +78,7 @@ Code for rejected or superseded work is kept as tags rather than as switches in 
 | `archive/seedless-prob` | the seedless `P` arm and tiled inference |
 | `archive/relax-grid` | `run_relax_grid`: relax window × floor, cross-fitted off the CV cache |
 | `archive/seed-hull` | `cnngvf.seedHull`: triangle fill and closing between linked seeds, after claiming |
+| `archive/seed-hull-claim` | the seed hull's same-claim rule and the no-disk fallback switch |
 
 ## How work is recorded
 

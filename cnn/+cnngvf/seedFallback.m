@@ -1,4 +1,4 @@
-function [D, dropped] = seedFallback(P, seeds, BW, cfg)
+function D = seedFallback(P, seeds, BW, cfg)
 %CNNGVF.SEEDFALLBACK What to output for a seed the threshold left with nothing.
 %
 %  D = cnngvf.seedFallback(P, seeds, BW, cfg)
@@ -6,8 +6,6 @@ function [D, dropped] = seedFallback(P, seeds, BW, cfg)
 %  P     : probability map
 %  BW    : the thresholded foreground; a seed already standing on it is skipped
 %  D     : logical, what to OR into BW
-%  dropped : S x 1 logical, seeds relax found nothing for and, with
-%            cfg.Post.relaxDisk = false, dropped instead of given the disk
 %
 %  On the 68-image domain 258 of 874 seeds never produce P > tau, so for them
 %  this function IS the answer.
@@ -30,10 +28,9 @@ function [D, dropped] = seedFallback(P, seeds, BW, cfg)
 switch cfg.Post.fallbackMode
     case "disk"
         D = cnngvf.seedDisks(size(P), seeds, BW, cfg);
-        dropped = false(size(seeds, 1), 1);
 
     case "relax"
-        [D, dropped] = relaxFallback(P, seeds, BW, cfg);
+        D = relaxFallback(P, seeds, BW, cfg);
 
     otherwise
         error('cnngvf:seedFallback:badMode', ...
@@ -47,10 +44,9 @@ end
 % LOCAL FUNCTIONS
 % =========================================================================
 
-function [D, dropped] = relaxFallback(P, seeds, BW, cfg)
+function D = relaxFallback(P, seeds, BW, cfg)
 [h, w] = size(P);
 D = false(h, w);
-dropped = false(size(seeds, 1), 1);
 
 win    = cfg.Post.relaxWindow;
 floor_ = cfg.Post.relaxFloor;
@@ -76,10 +72,8 @@ for s = 1:size(seeds, 1)
 
     if nnz(comp) >= cfg.Post.MinArea
         D(r0:r1, c0:c1) = D(r0:r1, c0:c1) | comp;
-    elseif cfg.Post.relaxDisk
-        D = D | cnngvf.seedDisks([h w], seeds(s, :), BW, cfg);
     else
-        dropped(s) = true;   % EXPERIMENT, docs/briefs/seed-hull-claim.md: no disk, no claim
+        D = D | cnngvf.seedDisks([h w], seeds(s, :), BW, cfg);
     end
 end
 end
