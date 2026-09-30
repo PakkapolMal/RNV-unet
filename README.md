@@ -58,6 +58,7 @@ Details: [cnn/README.md](cnn/README.md).
 | [2026-09-17 refine](docs/results/2026-09-17-refine.md) | any inference-only gain on top? | none; relax 0.20 locked |
 | [2026-09-18](docs/results/2026-09-18-relax-no-disk.md) | drop seeds relax cannot serve? | no, −0.0006 |
 | [2026-09-30](docs/results/2026-09-30-relax-grid.md) | tune the relax window × floor? | no, −0.0098 cross-fitted; 128 px is the best window |
+| [2026-09-30 paired](docs/results/2026-09-30-relax-floor-015-paired.md) | floor 0.15 vs 0.20, per image? | noise on IoU, +0.0027 CI [−0.003, +0.010]; a precision / recall trade |
 
 ## History
 
