@@ -4,7 +4,7 @@ description: The canonical vocabulary of the RNV segmentation context. One term,
 kind: glossary
 status: current
 dataset: DRAC22 + TUH (68 images)
-updated: 2026-09-25
+updated: 2026-09-30
 ---
 
 # RNV Segmentation
@@ -35,6 +35,13 @@ A thin, fern-like branch of a lesion. Names the shape that makes RNV hard:
 boundaries are deeply concave rather than convex, and a lesion's fronds may be
 disconnected from each other in the mask.
 _Avoid_: tendril, filament, branch
+
+**Inter-frond gap**:
+Lesion pixels between fronds that the probability map leaves empty, usually a
+concavity opening onto the lesion's outer edge, so hole filling cannot reach it.
+The annotator counts it as lesion; the network, which responds to the vessels,
+does not.
+_Avoid_: hole, fragmentation, concavity (for the error itself)
 
 ### The two stages
 
@@ -141,6 +148,12 @@ What a seed gets when the threshold left it with nothing — about 30% of seeds,
 it *is* the output. Currently **relax**: threshold `P` once at a low floor near the seed
 and take the component under it; a small disk only when that finds nothing claimable.
 _Avoid_: rescue, backup, default mask
+
+**Fragment**:
+A disconnected piece of the predicted mask within one lesion, such as an
+isolated seed-fallback disk beside the lesion's main body. A prediction
+failure, unlike a frond, which is a shape of the lesion itself.
+_Avoid_: frond (for a prediction piece), island, blob
 
 ### Experiments
 
