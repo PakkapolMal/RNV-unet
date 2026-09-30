@@ -29,4 +29,7 @@ BW = imclose(BW, cfg.Post.MorphElement);
 BW = imfill(BW, 'holes');
 
 [perSeed, mask] = cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule);
+
+% Experiment, docs/briefs/seed-hull-d.md: fill between nearby seeds.
+[perSeed, mask] = cnngvf.seedHull(perSeed, mask, seeds, cfg);
 end

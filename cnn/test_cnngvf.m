@@ -15,6 +15,7 @@ fprintf('test_cnngvf | %s | device: %s\n\n', version('-release'), cfg.GpuName);
 testPatchGeometry(cfg);
 testMaskFromProb(cfg);
 testSeedComponents(cfg);
+testSeedHull(cfg);
 testProbCache(cfg);
 testRunCache(cfg);
 testDomain(cfg);
@@ -187,6 +188,36 @@ assert(~adj{1}(103, 147) && adj{1}(103, 140), ...
     'the boundary rule claimed a component below minArea');
 
 fprintf('  seed mask selection       ok (centroid and boundary rules)\n');
+end
+
+
+function testSeedHull(cfg)
+% Three seeds pairwise within hullLink fill their triangle; a lone seed and a
+% triangle with one long edge add nothing; 0 leaves the mask untouched.
+% docs/briefs/seed-hull-d.md.
+d     = 96;
+seeds = [100 100; 100 + d 100; 100 + d/2 100 + 0.8*d; 400 400];
+blob  = @(r, c) (abs((1:512)' - r) <= 4) & (abs((1:512) - c) <= 4);
+perSeed = {blob(100, 100); blob(100, 100 + d); []; blob(400, 400)};   % seed 3 claimed nothing
+mask  = perSeed{1} | perSeed{2} | perSeed{4};
+
+cfg.Post.hullLink = 0;
+[p0, m0] = cnngvf.seedHull(perSeed, mask, seeds, cfg);
+assert(isequal(m0, mask) && isequal(p0, perSeed), 'hullLink 0 changed the mask');
+
+cfg.Post.hullLink = d;
+[p1, m1] = cnngvf.seedHull(perSeed, mask, seeds, cfg);
+c = round(mean(seeds(1:3, :)));
+assert(m1(c(2), c(1)), 'the linked triangle was not filled');
+assert(isequal(m1(300:end, 300:end), mask(300:end, 300:end)), 'a lone seed added pixels');
+assert(isequal(m1, p1{1} | p1{2} | p1{3} | p1{4}), 'mask is not the union of perSeed');
+assert(p1{3}(c(2), c(1)), 'a seed with no claim did not take the filled triangle');
+
+far = seeds; far(3, :) = [100 + d/2, 100 + 1.2*d];   % one edge longer than d
+[~, m2] = cnngvf.seedHull(perSeed, mask, far, cfg);
+assert(isequal(m2, mask), 'a triangle with an edge beyond hullLink was filled');
+
+fprintf('  seed hull                 ok (triangle, long edge, lone seed, off)\n');
 end
 
 

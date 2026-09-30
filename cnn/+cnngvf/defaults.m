@@ -186,6 +186,11 @@ cfg.Post.seedRadius   = 15;
 % component, the same rule training labels use) or "centroid" (frozen arms).
 cfg.Post.ClaimRule = "boundary";
 
+% EXPERIMENT, docs/briefs/seed-hull-d.md: fill Delaunay triangles whose seeds
+% are pairwise within hullLink px, after claiming; 0 = off. Cross-fitted over
+% {64 96 128 192 256}; removed once the brief's gate decides.
+cfg.Post.hullLink = 0;
+
 % --- Hardware --------------------------------------------------------------
 % gpuDevice sees CUDA devices only; an integrated GPU busy in Task Manager is
 % desktop rendering, not this pipeline. GpuName goes into every run record.
