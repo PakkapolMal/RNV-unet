@@ -10,6 +10,10 @@ status: pre-registered 2026-09-30, not yet run
 
 # Seed Hull — Fill Inter-frond Gaps Between Linked Seeds
 
+> **Executed brief.** Kept as written. Outcome: both arms rejected,
+> [../results/2026-09-30-seed-hull.md](../results/2026-09-30-seed-hull.md); code at tag
+> `archive/seed-hull`.
+
 Read [SPEC.md](../SPEC.md) first. Where this brief disagrees with it, stop and ask.
 
 ## Motivation

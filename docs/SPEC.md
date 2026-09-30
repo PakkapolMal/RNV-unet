@@ -4,7 +4,7 @@ description: The working specification of the current pipeline — architecture,
 kind: specification
 status: current
 dataset: DRAC22 + TUH (68 images)
-updated: 2026-09-25
+updated: 2026-09-30
 ---
 
 # RNV Segmentation from Localization Points — Specification
@@ -464,6 +464,12 @@ contending for one laptop GPU is slower than serial.
 - **Inference-only post-processing is exhausted on this `P`, measured.** A claim-distance cap,
   a relax guard and d4 test-time augmentation were all tried and none adopted
   ([results/2026-09-17-refine.md](results/2026-09-17-refine.md)). Effort belongs in `P`.
+- **Inter-frond gaps cost the largest lesions their recall.** `P` follows the vessels and
+  leaves the space between them empty. A closing at the heat-map scale recovers it on the
+  largest fifth of lesions (+0.061 IoU) but loses more on every smaller quintile. Filling
+  between seeds adds nothing, because 97 % of that area is already in the mask
+  ([results/2026-09-30-seed-hull.md](results/2026-09-30-seed-hull.md)). A size-gated
+  closing is untested and would need cross-fitting.
 - **Precision is the weak side**, about 0.13 below recall. The failure mode is
   over-segmentation.
 - **The large-lesion gap is model-side, not patch coverage.** 98% of the largest-quintile ground

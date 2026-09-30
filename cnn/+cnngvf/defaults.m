@@ -186,11 +186,6 @@ cfg.Post.seedRadius   = 15;
 % component, the same rule training labels use) or "centroid" (frozen arms).
 cfg.Post.ClaimRule = "boundary";
 
-% EXPERIMENT, docs/briefs/seed-hull.md: fill between seeds linked within
-% 2*sigmaSeed after claiming. "none", "triangles" or "close"; see
-% cnngvf.seedHull. Removed once the brief's gate decides.
-cfg.Post.seedHull = "none";
-
 % --- Hardware --------------------------------------------------------------
 % gpuDevice sees CUDA devices only; an integrated GPU busy in Task Manager is
 % desktop rendering, not this pipeline. GpuName goes into every run record.

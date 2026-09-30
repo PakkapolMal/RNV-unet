@@ -59,6 +59,7 @@ Details: [cnn/README.md](cnn/README.md).
 | [2026-09-18](docs/results/2026-09-18-relax-no-disk.md) | drop seeds relax cannot serve? | no, −0.0006 |
 | [2026-09-30](docs/results/2026-09-30-relax-grid.md) | tune the relax window × floor? | no, −0.0098 cross-fitted; 128 px is the best window |
 | [2026-09-30 paired](docs/results/2026-09-30-relax-floor-015-paired.md) | floor 0.15 vs 0.20, per image? | noise on IoU, +0.0027 CI [−0.003, +0.010]; a precision / recall trade |
+| [2026-09-30 seed hull](docs/results/2026-09-30-seed-hull.md) | fill between seeds linked within 2σ? | no: triangles inert (+0.0002); closing +0.0056 CI [−0.010, +0.022], trips the precision guard |
 
 ## History
 
@@ -71,6 +72,7 @@ Code for rejected or superseded work is kept as tags rather than as switches in 
 | `archive/reduce-refine` | the refinement code: `run_refine`, cross-fitting, seed features, TTA |
 | `archive/seedless-prob` | the seedless `P` arm and tiled inference |
 | `archive/relax-grid` | `run_relax_grid`: relax window × floor, cross-fitted off the CV cache |
+| `archive/seed-hull` | `cnngvf.seedHull`: triangle fill and closing between linked seeds, after claiming |
 
 ## How work is recorded
 
