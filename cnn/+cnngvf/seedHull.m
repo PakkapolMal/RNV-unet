@@ -9,8 +9,8 @@ function [perSeed, mask] = seedHull(perSeed, mask, seeds, cfg)
 %  holes enclosed by those triangles. It adds only inside the seed cloud and
 %  never touches a lesion's rim. 0 turns it off.
 %
-%  EXPERIMENT: docs/briefs/seed-hull-d.md cross-fits hullLink. At 64 px it was
-%  inert (docs/results/2026-09-30-seed-hull.md).
+%  hullLink = 128 was cross-fitted over 64-256; at 64 px the fill was inert.
+%  docs/results/2026-09-30-seed-hull-d.md.
 %
 %  The added pixels go into mask, and each seed's mask grows to its component
 %  of the new mask, so mask stays the union of perSeed.

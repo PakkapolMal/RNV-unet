@@ -160,7 +160,7 @@ cfg.CV.probCache = "";
 % The per-image record run_cache compares against: the adopted configuration's
 % cross-validated scores. A new adoption adds a new file here; old ones stay.
 cfg.CV.reference = fullfile(fileparts(mainDir), 'docs', 'results', 'reference', ...
-    '2026-09-17-relax-0.20.csv');
+    '2026-09-30-hull-128.csv');
 
 % --- Post-processing -------------------------------------------------------
 % P > tau -> seed fallback -> imclose -> imfill -> seedMasks. See
@@ -186,10 +186,10 @@ cfg.Post.seedRadius   = 15;
 % component, the same rule training labels use) or "centroid" (frozen arms).
 cfg.Post.ClaimRule = "boundary";
 
-% EXPERIMENT, docs/briefs/seed-hull-d.md: fill Delaunay triangles whose seeds
-% are pairwise within hullLink px, after claiming; 0 = off. Cross-fitted over
-% {64 96 128 192 256}; removed once the brief's gate decides.
-cfg.Post.hullLink = 0;
+% Seed hull, see cnngvf.seedHull: after claiming, fill Delaunay triangles whose
+% seeds are pairwise within hullLink px; 0 = off. 128 was cross-fitted over
+% 64-256 and adopted over its precision guard; docs/results/2026-09-30-seed-hull-d.md.
+cfg.Post.hullLink = 128;
 
 % --- Hardware --------------------------------------------------------------
 % gpuDevice sees CUDA devices only; an integrated GPU busy in Task Manager is

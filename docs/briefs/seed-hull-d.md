@@ -10,6 +10,10 @@ status: pre-registered 2026-09-30, not yet run
 
 # Seed Hull, Cross-fitted Link Distance
 
+> **Executed brief.** Kept as written. Outcome: gates 1 and 3 passed and the precision guard
+> failed (−0.0106). `hullLink = 128` was adopted anyway, by explicit decision:
+> [../results/2026-09-30-seed-hull-d.md](../results/2026-09-30-seed-hull-d.md).
+
 Follow-up to [seed-hull.md](seed-hull.md). Read its record,
 [../results/2026-09-30-seed-hull.md](../results/2026-09-30-seed-hull.md), first.
 

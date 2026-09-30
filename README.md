@@ -3,21 +3,24 @@
 Segments retinal neovascularization (RNV) lesions in OCTA en-face images, starting from the
 localization points an upstream detector emits. A seed-conditioned U-Net predicts a
 probability map `P`; the mask is `P > 0.5`, a relaxed threshold around seeds `P` left
-empty, and seed claiming. MATLAB R2026a.
+empty, seed claiming, and a seed hull that fills between nearby seeds. MATLAB R2026a.
 
 ## Current result
 
 Out-of-sample, 5-fold cross-validation, **68 images** (DRAC22 41 + TUH 27), whole-image
 scoring, current configuration (`cnngvf.defaults()`):
 
-| relax floor | mean IoU | median | F1 | precision | recall |
+| seed hull link | mean IoU | median | F1 | precision | recall |
 |---|---|---|---|---|---|
-| 0.20, pre-registered | **0.5097** | 0.5299 | 0.6489 | 0.6311 | 0.7579 |
-| cross-fitted per fold | **0.5061** | 0.5371 | 0.6428 | 0.6025 | 0.7868 |
+| cross-fitted per fold | **0.5184** | 0.5375 | 0.6554 | 0.6228 | 0.7771 |
+| 128 px, fixed (chosen on these images) | 0.5207 | 0.5375 | 0.6572 | 0.6268 | 0.7762 |
+| none (previous configuration) | 0.5097 | 0.5299 | 0.6489 | 0.6311 | 0.7579 |
 
-The same `P` through the deleted GVF + level-set stage scored 0.4708. Source:
-[docs/results/2026-09-17-refine.md](docs/results/2026-09-17-refine.md); per image:
-[docs/results/reference/2026-09-17-relax-0.20.csv](docs/results/reference/2026-09-17-relax-0.20.csv),
+Relax floor 0.20 throughout. The cross-fitted row is the estimate to quote. **The seed hull
+was adopted over its own pre-registered precision guard** (−0.0106 against a limit of −0.01),
+by explicit decision. Source:
+[docs/results/2026-09-30-seed-hull-d.md](docs/results/2026-09-30-seed-hull-d.md); per image:
+[docs/results/reference/2026-09-30-hull-128.csv](docs/results/reference/2026-09-30-hull-128.csv),
 which `run_cache` checks against. This table is the only place the current number is quoted;
 update it here when it changes.
 
@@ -60,6 +63,7 @@ Details: [cnn/README.md](cnn/README.md).
 | [2026-09-30](docs/results/2026-09-30-relax-grid.md) | tune the relax window × floor? | no, −0.0098 cross-fitted; 128 px is the best window |
 | [2026-09-30 paired](docs/results/2026-09-30-relax-floor-015-paired.md) | floor 0.15 vs 0.20, per image? | noise on IoU, +0.0027 CI [−0.003, +0.010]; a precision / recall trade |
 | [2026-09-30 seed hull](docs/results/2026-09-30-seed-hull.md) | fill between seeds linked within 2σ? | no: triangles inert (+0.0002); closing +0.0056 CI [−0.010, +0.022], trips the precision guard |
+| [2026-09-30 seed hull d](docs/results/2026-09-30-seed-hull-d.md) | triangles with a cross-fitted link distance? | adopted at 128 px: +0.0087 CI [+0.002, +0.016], over a failed precision guard (−0.0106) |
 
 ## History
 

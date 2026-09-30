@@ -20,7 +20,7 @@ function out = run_steps(imageName, cfg)
 %    05_prob.png           P, the CNN probability map
 %    06_binary_raw.png     P > tau plus the seed fallback, before morphology
 %    07_after_morph.png    after imclose + imfill
-%    08_final_mask.png     after seedMasks - the pipeline's answer
+%    08_final_mask.png     after seedMasks + seedHull - the pipeline's answer
 %    09_overlay.png        image + seeds + final contours
 %    10_gt_overlay.png     ground truth, if present
 %    11_error_map.png      green TP / red FP / blue FN, if ground truth present
@@ -125,6 +125,7 @@ BWm = imfill(imclose(BW, cfg.Post.MorphElement), 'holes');
 save1(outDir, '07_after_morph.png', BWm);
 
 [perSeed, mask] = cnngvf.seedMasks(BWm, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule);
+[perSeed, mask] = cnngvf.seedHull(perSeed, mask, seeds, cfg);
 save1(outDir, '08_final_mask.png', mask);
 assert(isequal(mask, cnngvf.maskFromProb(P, seeds, cfg)), 'cnngvf:runSteps:drift', ...
     'run_steps no longer mirrors cnngvf.maskFromProb - update stages 6-8.');

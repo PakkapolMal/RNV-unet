@@ -129,7 +129,10 @@ seed (x,y) ─► Gaussian heat-map ───┘                                
                                                                            │
                                           seed fallback: relax at 0.20 ◄───┘
                                                                            │
-                        mask ◄─ seedMasks ◄─ imfill ◄─ imclose ◄───────────┘
+                        seedMasks ◄─ imfill ◄─ imclose ◄───────────────────┘
+                            │
+                            ▼
+              seed hull: fill triangles of seeds within 128 px ─► mask
 ```
 
 One mask is built for the whole image and the seeds decide afterwards which components
@@ -227,6 +230,29 @@ blob's centroid than its own. It is also the rule training labels use, so the pi
 "which lesion does this seed belong to" the same way at both ends. Fixing this was measured
 alone before anything else ([results/2026-09-16-reduce.md](results/2026-09-16-reduce.md) §1).
 
+### 8. Seed hull — also `08_final_mask.png`
+
+**Does:** `cnngvf.seedHull` — after claiming, every triangle of the seeds' Delaunay
+triangulation whose three seeds are pairwise within `hullLink = 128` px is added to the mask,
+with holes enclosed by those triangles filled. Each seed's mask grows to its component of the
+new mask, so the image mask stays the union of the per-seed masks.
+
+**Matters because** of **inter-frond gaps**. `P` follows the vessels, while FilledGT marks the
+space between them, and that space opens onto the lesion's edge, where `imfill` cannot reach
+it. Detections tile large lesions, so seeds close together bracket those gaps. The fill adds
+only inside the seed cloud and never touches a lesion's rim, which is why it costs far less
+precision than a closing at a similar scale. Worth +0.0087 IoU cross-fitted on 68 images,
+nearly all of it on the largest lesions
+([results/2026-09-30-seed-hull-d.md](results/2026-09-30-seed-hull-d.md)).
+
+**Adopted against its own gate.** The pre-registered precision guard (smallest three
+GT-area quintiles, limit −0.01) measured −0.0106. It was overridden by decision, recorded in
+the results file. The IoU gain cleared its CI and 4 of 5 folds chose 128.
+
+At 64 px (2 · `sigmaSeed`, where two heat-map bumps merge) it was inert: 97 % of the
+qualifying area was already in the mask
+([results/2026-09-30-seed-hull.md](results/2026-09-30-seed-hull.md)).
+
 ## Specification
 
 All values from [`+cnngvf/defaults.m`](../cnn/+cnngvf/defaults.m), which is the current
@@ -319,6 +345,7 @@ archives any existing network with a timestamp before saving.
 | `Post.MorphElement` | `strel('disk', 2)` | `imclose` before `imfill` |
 | `Post.MinArea` | 500 px | components below it cannot be claimed |
 | `Post.ClaimRule` | **`"boundary"`** | same rule as training labels; `"centroid"` on the frozen arms |
+| `Post.hullLink` | **128 px** | seed hull pairwise bound, cross-fitted over 64–256; 0 turns it off, as on the frozen arms ([results](results/2026-09-30-seed-hull-d.md)) |
 
 ## Running it
 
@@ -388,7 +415,7 @@ imgPath ──► loadChannels ──► chans (h x w x C)
 seeds (S x 2) ─────────────────┴──► inferProbMap ──► P        [seedPatch per seed]
                                                      │
                                                 maskFromProb
-                                  P > tau ─► seedFallback ─► imclose ─► imfill ─► seedMasks
+                    P > tau ─► seedFallback ─► imclose ─► imfill ─► seedMasks ─► seedHull
                                                      │
                                               mask + perSeed{}
 ```
@@ -405,7 +432,7 @@ ones in `+cnngvf/arm.m` override only what differs:
 
 | arm | datasets | points | channels | perSeed | fallback | claim | output |
 |---|---|---|---|---|---|---|---|
-| **`DRACTUH_unclustered`** | DRAC22 + TUH | unclustered | 1 (+heat-map) | 4 | relax 0.20 | boundary | `result/DRACTUH_unclustered/` |
+| **`DRACTUH_unclustered`** | DRAC22 + TUH | unclustered | 1 (+heat-map) | 4 | relax 0.20 | boundary + seed hull 128 | `result/DRACTUH_unclustered/` |
 | `clustered` | DRAC22 | clustered | 2 (+heat-map) | 16 | disk | centroid | `result/` |
 | `unclustered` | DRAC22 | unclustered | 1 (+heat-map) | 4 | disk | centroid | `result/unclustered/` |
 | `unclustered_boundary` | DRAC22 | unclustered | 1 (+heat-map) | 4 | disk | boundary | `result/unclustered_boundary/` |
@@ -461,15 +488,15 @@ contending for one laptop GPU is slower than serial.
 
 ## Known limits and next steps
 
-- **Inference-only post-processing is exhausted on this `P`, measured.** A claim-distance cap,
+- **Inference-only post-processing is nearly exhausted on this `P`.** A claim-distance cap,
   a relax guard and d4 test-time augmentation were all tried and none adopted
-  ([results/2026-09-17-refine.md](results/2026-09-17-refine.md)). Effort belongs in `P`.
-- **Inter-frond gaps cost the largest lesions their recall.** `P` follows the vessels and
-  leaves the space between them empty. A closing at the heat-map scale recovers it on the
-  largest fifth of lesions (+0.061 IoU) but loses more on every smaller quintile. Filling
-  between seeds adds nothing, because 97 % of that area is already in the mask
-  ([results/2026-09-30-seed-hull.md](results/2026-09-30-seed-hull.md)). A size-gated
-  closing is untested and would need cross-fitting.
+  ([results/2026-09-17-refine.md](results/2026-09-17-refine.md)). The seed hull is the one
+  exception, at +0.0087. Effort belongs in `P`.
+- **The seed hull's 128 px was chosen on these 68 images.** It is cross-fitted, and it was
+  adopted over its own precision guard. Confirming it needs images the pipeline has never
+  scored. A closing at the heat-map scale recovered more on the largest lesions (+0.061 on
+  the top quintile) but lost more on every smaller one
+  ([results/2026-09-30-seed-hull.md](results/2026-09-30-seed-hull.md)).
 - **Precision is the weak side**, about 0.13 below recall. The failure mode is
   over-segmentation.
 - **The large-lesion gap is model-side, not patch coverage.** 98% of the largest-quintile ground

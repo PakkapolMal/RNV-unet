@@ -9,7 +9,7 @@ function [mask, perSeed] = maskFromProb(P, seeds, cfg)
 %  mask    : logical h x w, the union of every claimed lesion
 %  perSeed : S x 1 cell, one mask per seed
 %
-%     P > Post.tau -> seed fallback -> imclose -> imfill -> seedMasks
+%     P > Post.tau -> seed fallback -> imclose -> imfill -> seedMasks -> seedHull
 %
 %  This replaced a GVF + DRLSE level set that measured -0.0017 IoU (not
 %  significant) against it on identical P; see docs/results/.
@@ -30,6 +30,6 @@ BW = imfill(BW, 'holes');
 
 [perSeed, mask] = cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule);
 
-% Experiment, docs/briefs/seed-hull-d.md: fill between nearby seeds.
+% Inter-frond gaps: fill between nearby seeds. docs/SPEC.md, stage 8.
 [perSeed, mask] = cnngvf.seedHull(perSeed, mask, seeds, cfg);
 end

@@ -54,6 +54,7 @@ cfg.Patch.perSeed  = a.perSeed;
 cfg.Patch.seedTolerance = a.seedTolerance;
 cfg.Post.ClaimRule    = a.claimRule;
 cfg.Post.fallbackMode = "disk";
+cfg.Post.hullLink     = 0;       % the seed hull came after every frozen arm
 
 cfg.CV.reference = "";   % frozen arms have no reference on master
 cfg.CV.ModelArm = a.cvModelArm;
