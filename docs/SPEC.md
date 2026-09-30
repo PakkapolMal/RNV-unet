@@ -278,7 +278,7 @@ and the network sees 2:
 |---|---|---|
 | `Patch.size` | **512** | 13 of 35 DRAC22 segments need a window > 256 px, and each scored badly at 256. |
 | `Patch.jitter` | ±32 px | crop offset; the heat-map marks the seed, not the patch centre |
-| `Patch.perSeed` | **4** | 1 underfit, by +0.141 IoU paired; ~3 370 patches/epoch, ~5 h to train |
+| `Patch.perSeed` | **4** | Training only. Sets the per-epoch patch budget: about `perSeed` × usable training seeds. With `balanceByImage` that budget is shared equally across images, drawn with replacement from each image's own seeds, so a seed gets about `perSeed` patches per epoch on average, not exactly. Each draw gets a fresh ±`Patch.jitter` offset and flip/rotation, so the patches differ every epoch. Why 4: 1 underfit, by +0.141 IoU paired; ~3 370 patches/epoch, ~5 h to train. |
 | `Patch.balanceByImage` | **true** | equal patches per *image*, not per seed |
 | `Patch.seedTolerance` | **20 px** | recovers 49 near-misses, rejects 32 detector errors |
 
@@ -299,7 +299,7 @@ would pin a seed-rich image to the same subset in CSV order for the whole run.
 | parameter | value | why |
 |---|---|---|
 | `Net.miniBatch` | **2** | 4 died out of memory at iteration 0 on an 8 GB GPU. Validation follows `MiniBatchSize` — `trainingOptions` has no `ValidationMiniBatchSize` for `adam`. |
-| `Net.inferBatch` | **4** | an image can carry 113 seeds; they cannot all go through `predict` at once |
+| `Net.inferBatch` | **4** | Inference only. Each seed gets one patch, and `inferBatch` is how many of those patches go through `predict` at once. It changes speed and GPU memory, never the result. Bounded because an image can carry 113 seeds, which cannot all go through at once. The training-side counterpart is `Net.miniBatch`; `perSeed` and `inferBatch` both being 4 is a coincidence. |
 
 Generalized Dice, not cross-entropy: RNV is a small foreground fraction, and its
 inverse-square-volume class weighting is what stops the network collapsing to all-background.
