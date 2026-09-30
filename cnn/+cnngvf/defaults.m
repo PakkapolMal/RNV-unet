@@ -191,6 +191,12 @@ cfg.Post.ClaimRule = "boundary";
 % 64-256 and adopted over its precision guard; docs/results/2026-09-30-seed-hull-d.md.
 cfg.Post.hullLink = 128;
 
+% EXPERIMENT, docs/briefs/seed-hull-claim.md: fill a hull triangle only when
+% its seeds claimed the same component; drop (not disk) seeds relax cannot
+% serve. Removed once the brief's gate decides.
+cfg.Post.hullSameClaim = false;
+cfg.Post.relaxDisk     = true;
+
 % --- Hardware --------------------------------------------------------------
 % gpuDevice sees CUDA devices only; an integrated GPU busy in Task Manager is
 % desktop rendering, not this pipeline. GpuName goes into every run record.

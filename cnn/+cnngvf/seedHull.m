@@ -22,7 +22,18 @@ if d <= 0 || size(seeds, 1) < 3
     return;
 end
 
-F = linkedTriangles(seeds, d, size(mask)) & ~mask;
+% EXPERIMENT, docs/briefs/seed-hull-claim.md: with hullSameClaim, a triangle
+% fills only when its three seeds claimed the same component (0 = nothing).
+claim = zeros(size(seeds, 1), 1);
+if cfg.Post.hullSameClaim
+    L0 = bwlabel(mask);
+    for s = 1:numel(perSeed)
+        if ~isempty(perSeed{s})
+            claim(s) = max(L0(perSeed{s}));
+        end
+    end
+end
+F = linkedTriangles(seeds, claim, cfg.Post.hullSameClaim, d, size(mask)) & ~mask;
 if ~any(F(:))
     return;
 end
@@ -50,11 +61,12 @@ end
 % LOCAL FUNCTIONS
 % =========================================================================
 
-function F = linkedTriangles(seeds, d, sz)
+function F = linkedTriangles(seeds, claim, sameClaim, d, sz)
 F = false(sz);
 
 % delaunayTriangulation merges duplicate points, so triangulate unique ones.
-u = unique(seeds, 'rows', 'stable');
+[u, iu] = unique(seeds, 'rows', 'stable');
+claim = claim(iu);
 if size(u, 1) < 3
     return;
 end
@@ -68,6 +80,9 @@ end
 
 len  = @(a, b) hypot(u(T(:, a), 1) - u(T(:, b), 1), u(T(:, a), 2) - u(T(:, b), 2));
 keep = max([len(1, 2), len(2, 3), len(1, 3)], [], 2) <= d;
+if sameClaim
+    keep = keep & claim(T(:, 1)) > 0 & claim(T(:, 1)) == claim(T(:, 2)) & claim(T(:, 2)) == claim(T(:, 3));
+end
 if ~any(keep)
     return;
 end
