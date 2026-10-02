@@ -341,9 +341,9 @@ archives any existing network with a timestamp before saving.
 | `Post.fallbackMode` | **`"relax"`** | shape from `P` for seeds the threshold missed; `"disk"` on the frozen arms |
 | `Post.relaxFloor` | **0.20** | fixed after the 2026-09-16 sweep; re-tuning it jointly with the window loses 0.0098 cross-fitted ([results](results/2026-09-30-relax-grid.md)) |
 | `Post.relaxWindow` | 128 px | stops a low floor flooding a broad plateau; the best of 64 / 128 / 256 / 512 at every floor 0.10–0.25 ([results](results/2026-09-30-relax-grid.md)) |
-| `Post.seedRadius` | 15 px | the disk when relax finds nothing claimable |
+| `Post.seedRadius` | 15 px | the disk when relax finds nothing claimable; near-inert under relax: r 0–30 all within 0.0003, 9 images change ([results](results/2026-10-02-minarea-disk.md)) |
 | `Post.MorphElement` | `strel('disk', 2)` | `imclose` before `imfill` |
-| `Post.MinArea` | 500 px | components below it cannot be claimed; must stay under the smallest lesion (601 px) and the disk (~707 px). Cross-fitted over 100–1000: every fold picks 500 ([results](results/2026-10-02-minarea.md)) |
+| `Post.MinArea` | 500 px | components below it cannot be claimed; must stay under the smallest component the network fires on (~700 px: `421`, `217`). Cross-fitted over 100–1000 and jointly with `seedRadius`: every fold picks 500 ([results](results/2026-10-02-minarea-disk.md)) |
 | `Post.ClaimRule` | **`"boundary"`** | same rule as training labels; `"centroid"` on the frozen arms |
 | `Post.hullLink` | **128 px** | seed hull pairwise bound, cross-fitted over 64–256; 0 turns it off, as on the frozen arms ([results](results/2026-09-30-seed-hull-d.md)) |
 

@@ -5,10 +5,14 @@ kind: implementation-brief
 audience: Claude Code
 target: RNV-Claude/cnn, MATLAB R2026a
 depends-on: results/2026-10-02-minarea.md, results/2026-09-16-reduce.md, results/2026-10-01-seed-hull-claim.md
-status: pre-registered 2026-10-02, not yet run
+status: executed 2026-10-02
 ---
 
 # MinArea × Fallback Disk Radius, Cross-fitted
+
+> **Executed brief.** Kept as written. Outcome: every fold chose (500, 15), gate 1 failed, the
+> default stays. Predictions 1 and 3 were wrong: `421` / `217` are fired seeds, not disks.
+> [../results/2026-10-02-minarea-disk.md](../results/2026-10-02-minarea-disk.md).
 
 ## Why
 
