@@ -343,7 +343,7 @@ archives any existing network with a timestamp before saving.
 | `Post.relaxWindow` | 128 px | stops a low floor flooding a broad plateau; the best of 64 / 128 / 256 / 512 at every floor 0.10–0.25 ([results](results/2026-09-30-relax-grid.md)) |
 | `Post.seedRadius` | 15 px | the disk when relax finds nothing claimable |
 | `Post.MorphElement` | `strel('disk', 2)` | `imclose` before `imfill` |
-| `Post.MinArea` | 500 px | components below it cannot be claimed |
+| `Post.MinArea` | 500 px | components below it cannot be claimed; must stay under the smallest lesion (601 px) and the disk (~707 px). Cross-fitted over 100–1000: every fold picks 500 ([results](results/2026-10-02-minarea.md)) |
 | `Post.ClaimRule` | **`"boundary"`** | same rule as training labels; `"centroid"` on the frozen arms |
 | `Post.hullLink` | **128 px** | seed hull pairwise bound, cross-fitted over 64–256; 0 turns it off, as on the frozen arms ([results](results/2026-09-30-seed-hull-d.md)) |
 

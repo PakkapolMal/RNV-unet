@@ -65,6 +65,7 @@ Details: [cnn/README.md](cnn/README.md).
 | [2026-09-30 seed hull](docs/results/2026-09-30-seed-hull.md) | fill between seeds linked within 2σ? | no: triangles inert (+0.0002); closing +0.0056 CI [−0.010, +0.022], trips the precision guard |
 | [2026-09-30 seed hull d](docs/results/2026-09-30-seed-hull-d.md) | triangles with a cross-fitted link distance? | adopted at 128 px: +0.0087 CI [+0.002, +0.016], over a failed precision guard (−0.0106) |
 | [2026-10-01](docs/results/2026-10-01-seed-hull-claim.md) | fill only triangles on one claimed component, with or without the disk? | no: guard repaired but −0.0028 IoU; fallback-disk fragment joins are 82 % lesion |
+| [2026-10-02](docs/results/2026-10-02-minarea.md) | tune `MinArea` (100–1000 px)? | no: every fold picks 500; inert below, above ~700 px the two smallest lesions go to IoU 0 |
 
 ## History
 
