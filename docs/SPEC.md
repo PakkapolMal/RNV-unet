@@ -484,7 +484,10 @@ contending for one laptop GPU is slower than serial.
    different questions. State the domain with every number.
 5. **Every score is tied to the CSVs in place when it was measured.**
 6. **Pre-register any threshold that sets the output.** State it before measuring; select it
-   by cross-fitting if it must be tuned.
+   by cross-fitting if it must be tuned. Then quote the cross-fitted score and ship the value
+   chosen on all images. The fixed value's score on those images is optimistic, because it
+   won there ([CONTEXT.md](CONTEXT.md), "Cross-fitted"; worked example in
+   [results/2026-09-30-seed-hull-d.md](results/2026-09-30-seed-hull-d.md)).
 
 ## Known limits and next steps
 

@@ -180,6 +180,16 @@ selection. The only kind of score quotable here — `OutputNetwork="best-validat
 means validation images are *not* held out.
 _Avoid_: held-out, validation score, test score
 
+**Cross-fitted**:
+A tuned value scored only on images that played no part in choosing it: each fold uses
+the value that won on the other folds. It measures the *procedure* "tune, then apply",
+so it is the score to expect on new images. Scoring the value that won on all the images
+reads higher, like a student who picks a study plan after seeing the exam; cross-fitting
+is the student who picks it from past exams, and only that score predicts the next exam.
+The value that ships is still the one chosen on all the images; only its score is
+optimistic.
+_Avoid_: adaptive, per-fold tuning (it is a measurement, not a better tuner)
+
 **Evaluation Unit**:
 What one scored row represents — a whole image (`"image"`) or a single seed
 (`"segment"`). The two are not comparable, and only `"image"` is valid across
