@@ -41,6 +41,10 @@ round-robin dealing interleaves the datasets in practice — every fold holds bo
 and `per_image.csv` carries a `Dataset` column so a pooled run can be broken out
 afterwards without re-running.
 
+The split is published as [folds.csv](folds.csv) (`image, dataset, fold`), for use
+outside this repo, for example to match a peer's folds. `cnngvf.cvFolds` stays the
+truth: `test_cnngvf` fails if the file stops matching it.
+
 ### Seed tolerance
 
 The localization points come from separate research and contain errors: 81 of 874 fall

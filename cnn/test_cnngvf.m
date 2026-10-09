@@ -328,6 +328,16 @@ assert(numel(all_) == height(M) && isempty(setdiff(all_, M.Name)), ...
     'cvFolds does not partition the domain');
 assert(numel(unique(all_)) == numel(all_), 'an image appears in two folds');
 
+% docs/folds.csv is the published split; it must be what cvFolds deals.
+if cfg.Arm == "DRACTUH_unclustered"
+    [~, info] = cnngvf.cvFolds(cfg);
+    F = readtable(fullfile(fileparts(cfg.Paths.Main), 'docs', 'folds.csv'), 'TextType', 'string');
+    [ok, j] = ismember(info.Image, F.image);
+    assert(height(F) == height(info) && all(ok) && isequal(F.fold(j), info.Fold) ...
+        && isequal(F.dataset(j), info.Dataset), ...
+        'docs/folds.csv no longer matches cnngvf.cvFolds; regenerate it and record why');
+end
+
 fprintf('  domain manifest           ok (%d images, %d seeds, %s)\n', ...
     height(M), numel(names), strjoin(compose("%s %d", ...
         unique(M.Dataset), groupcounts(M.Dataset))', ', '));
