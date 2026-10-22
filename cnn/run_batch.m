@@ -15,15 +15,14 @@ function [perUnit, summary] = run_batch(cfg)
 %    segment/<stem>-<x>-<y>.png one mask per seed, named like the ground truth
 %    overlay/<stem>.png         image + seeds + final contours
 %    prob/<stem>.png            the CNN probability map
-%    per_segment.csv            per-seed scores   (cfg.EvalMode "segment")
-%    per_image.csv              per-image scores  (cfg.EvalMode "image")
+%    per_image.csv              per-image scores
 %    run_summary.txt            aggregate scores and the config behind them
 %
-%  Scoring is governed by cfg.EvalMode; see cnngvf.evaluate. Images with no
+%  Scoring: see cnngvf.evaluate. Images with no
 %  ground truth are segmented and written but not scored.
 %
 %  This function segments AND scores. To re-score masks that already exist -
-%  after changing cfg.EvalMode, or against corrected ground truth - use
+%  against corrected ground truth - use
 %  run_eval, which reads the cached masks and skips the network entirely.
 %
 %  See also RUN_EVAL, CNNGVF.SEGMENTIMAGE, CNNGVF.EVALUATE, RUN_TRAIN.
@@ -172,15 +171,10 @@ end
 
 fprintf('\nDone in %.1f s. %d masks written to %s\n', sum(elapsed), n, dirs.combined);
 if summary.nUnits > 0
-    unitName = cfg.EvalMode + "s";
-    fprintf('Scored %d %s: mean IoU %.4f (median %.4f), mean F1 %.4f (median %.4f)\n', ...
-        summary.nUnits, unitName, summary.meanIou, summary.medianIou, ...
+    fprintf('Scored %d images: mean IoU %.4f (median %.4f), mean F1 %.4f (median %.4f)\n', ...
+        summary.nUnits, summary.meanIou, summary.medianIou, ...
         summary.meanF1, summary.medianF1);
-    fprintf('Precision %.4f, Recall %.4f', summary.meanPrecision, summary.meanRecall);
-    if cfg.EvalMode == "segment"
-        fprintf(' | %d GT px belong to lesions no seed claimed', summary.unclaimedGtPx);
-    end
-    fprintf('\n');
+    fprintf('Precision %.4f, Recall %.4f\n', summary.meanPrecision, summary.meanRecall);
     if height(summary.perDataset) > 1
         fprintf('Per dataset:\n');
         for i = 1:height(summary.perDataset)
@@ -209,12 +203,7 @@ for d = cfg.Datasets
     if ~ismember(d.Name, cfg.ActiveDatasets)
         continue;
     end
-    if cfg.Points == "clustered"
-        p = d.Clustered;
-    else
-        p = d.Unclustered;
-    end
-    info = dir(p);
+    info = dir(d.Unclustered);
     if isempty(info)
         stamps.(char(d.Name)) = "missing";
     else
@@ -237,15 +226,14 @@ end
 function csvName = writeScores(cfg, perUnit)
 %WRITESCORES Write the score table, falling back to a timestamped name when
 %  the usual one is locked - typically because it is open in Excel.
-csvName = "per_" + cfg.EvalMode + ".csv";
+csvName = "per_image.csv";
 try
     writetable(perUnit, fullfile(cfg.Paths.Output, csvName));
 catch
-    csvName = "per_" + cfg.EvalMode + "_" + ...
+    csvName = "per_image_" + ...
         string(datetime('now', 'Format', 'yyyyMMdd_HHmmss')) + ".csv";
     writetable(perUnit, fullfile(cfg.Paths.Output, csvName));
     warning('cnngvf:runBatch:csvLocked', ...
-        'per_%s.csv is locked (open in Excel?); wrote %s instead.', ...
-        cfg.EvalMode, csvName);
+        'per_image.csv is locked (open in Excel?); wrote %s instead.', csvName);
 end
 end

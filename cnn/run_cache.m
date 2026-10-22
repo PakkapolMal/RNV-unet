@@ -31,7 +31,6 @@ if nargin < 2 || strlength(cacheDir) == 0
         cacheDir = fullfile(cfg.Paths.Output, 'cv', 'probcache');
     end
 end
-cfg.EvalMode = "image";
 
 images = cnngvf.probCache("list", cacheDir);
 if isempty(images)

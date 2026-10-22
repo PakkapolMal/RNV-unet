@@ -66,7 +66,6 @@ elseif isstring(cfg) || ischar(cfg)
     cfg = cnngvf.arm(cnngvf.defaults(), cfg);
 end
 arm = cfg.Arm;
-cfg.EvalMode = "image";   % the union mask vs whole-image GT; the shared unit
 
 % 20 epochs, not the 30 a single training run uses. Cross-validation pays for
 % training k times. OutputNetwork="best-validation" keeps the best checkpoint,
@@ -91,7 +90,6 @@ end
 
 fprintf('run_cv | arm=%s | %d folds | device: %s\n', arm, k, cfg.GpuName);
 fprintf('Datasets : %s\n', strjoin(cfg.ActiveDatasets, ' + '));
-fprintf('Points   : %s\n', cfg.Points);
 fprintf('Output   : %s\n\n', cvRoot);
 disp(groupsummary(foldInfo, {'Fold', 'Dataset'}));
 
@@ -204,13 +202,11 @@ perImage = sortrows(perImage, 'Image');
 writetable(perImage, fullfile(cvRoot, 'per_image.csv'));
 
 summary = struct( ...
-    'mode',           "image", ...
     'nUnits',         height(perImage), ...
     'meanIou',        mean(perImage.Iou),  'medianIou', median(perImage.Iou), ...
     'meanF1',         mean(perImage.F1),   'medianF1',  median(perImage.F1), ...
     'meanPrecision',  mean(perImage.Precision), ...
     'meanRecall',     mean(perImage.Recall), ...
-    'unclaimedGtPx',  0, ...
     'missingGtFiles', 0);
 summary.perDataset = groupsummary(perImage, 'Dataset', 'mean', ...
     {'Iou', 'F1', 'Precision', 'Recall'});
@@ -222,7 +218,6 @@ summary.perDataset = groupsummary(perImage, 'Dataset', 'mean', ...
 % table, so say so.
 sc = cfg;
 sc.Paths.Output = cvRoot;
-sc.EvalMode     = "image";
 sc.Paths.Model  = sprintf('%d-fold CV, %s (see fold*/run_summary.txt)', ...
     k, fullfile(fileparts(cfg.Paths.Model), 'cv', char(cfg.Arm) + "_fold<k>.mat"));
 cnngvf.writeSummary(fullfile(cvRoot, 'run_summary.txt'), sc, perImage, summary, []);

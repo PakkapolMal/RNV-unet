@@ -1,8 +1,7 @@
-function [names, seeds] = loadPoints(cfg, which)
+function [names, seeds] = loadPoints(cfg)
 %CNNGVF.LOADPOINTS Localization points across every active dataset.
 %
-%  [names, seeds] = cnngvf.loadPoints(cfg)            % cfg.Points
-%  [names, seeds] = cnngvf.loadPoints(cfg, "clustered" | "unclustered")
+%  [names, seeds] = cnngvf.loadPoints(cfg)
 %
 %  names : N x 1 string, image file name per point
 %  seeds : N x 2 double, [cx cy] = (column, row)
@@ -15,25 +14,9 @@ function [names, seeds] = loadPoints(cfg, which)
 %  is normal rather than exceptional: a localization CSV covers whatever the
 %  detector was run on, which is not necessarily the set that has ground truth.
 %
-%  "clustered" points are DBSCAN representatives, one per lesion; "unclustered"
-%  are the raw detections behind them. Only DRAC22 has per-seed ground truth
-%  keyed to its clustered coordinates, which is why cnngvf.evaluate fences
-%  EvalMode "segment" to that dataset.
+%  The points are the raw (unclustered) detections, several per lesion.
 %
 %  See also CNNGVF.MANIFEST, CNNGVF.ARM.
-
-if nargin < 2 || strlength(which) == 0
-    which = cfg.Points;
-end
-which = lower(string(which));
-
-switch which
-    case "clustered",   field = 'Clustered';
-    case "unclustered", field = 'Unclustered';
-    otherwise
-        error('cnngvf:loadPoints:badSet', ...
-            'Unknown point set "%s". Use "clustered" or "unclustered".', which);
-end
 
 names = strings(0, 1);
 seeds = zeros(0, 2);
@@ -44,14 +27,10 @@ for d = 1:numel(cfg.Datasets)
         continue;
     end
 
-    csv = Ds.(field);
-    if strlength(csv) == 0
-        error('cnngvf:loadPoints:noCsvField', ...
-            'Dataset "%s" defines no %s point set.', Ds.Name, which);
-    end
+    csv = Ds.Unclustered;
     if ~isfile(csv)
         error('cnngvf:loadPoints:noCsv', ...
-            'Dataset "%s": %s points not found at %s', Ds.Name, which, csv);
+            'Dataset "%s": points not found at %s', Ds.Name, csv);
     end
 
     T = readtable(csv);
@@ -77,8 +56,8 @@ end
 
 if isempty(names)
     error('cnngvf:loadPoints:none', ...
-        'No %s points fall on any image in the domain (%s).', ...
-        which, strjoin(cfg.ActiveDatasets, ', '));
+        'No points fall on any image in the domain (%s).', ...
+        strjoin(cfg.ActiveDatasets, ', '));
 end
 end
 

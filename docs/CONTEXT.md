@@ -67,8 +67,8 @@ one patch.
 _Avoid_: unclustered point, raw seed
 
 **Cluster Centre**:
-The single DBSCAN representative of a lesion's detections. One per lesion, and
-the coordinates the per-seed ground truth is named after.
+The single DBSCAN representative of a lesion's detections. One per lesion.
+Not used by the current pipeline.
 _Avoid_: clustered point, centroid, representative
 
 **Claim**:
@@ -112,11 +112,6 @@ _Avoid_: index, catalogue, registry
 The whole-image ground-truth mask, one per image, with lesion interiors filled.
 The scoring target.
 _Avoid_: label, truth mask, annotation
-
-**SegmentFilledGT**:
-One ground-truth mask per cluster centre, named `<stem>-<x>-<y>.png`. DRAC22
-only, keyed to cluster-centre coordinates.
-_Avoid_: per-seed GT, split GT
 
 **Acquisition Overlay**:
 The burned-in device graphics on every TUH image — a magenta vertical and cyan
@@ -190,12 +185,6 @@ The value that ships is still the one chosen on all the images; only its score i
 optimistic.
 _Avoid_: adaptive, per-fold tuning (it is a measurement, not a better tuner)
 
-**Evaluation Unit**:
-What one scored row represents — a whole image (`"image"`) or a single seed
-(`"segment"`). The two are not comparable, and only `"image"` is valid across
-both datasets.
-_Avoid_: metric level, granularity, scope
-
 ### Retired
 
 Terms for the GVF + level-set stages deleted on 2026-09-25. They survive in
@@ -222,3 +211,15 @@ _Avoid_: stopping function, edge indicator, g-function
 One `φ` holds every lesion in an image and splits and merges natively, which is
 why there is no per-lesion bookkeeping.
 _Avoid_: phi (in prose), contour, snake, front
+
+Retired with the `clustered` arm (tag `archive/clustered-arm`):
+
+**SegmentFilledGT**:
+One ground-truth mask per cluster centre, named `<stem>-<x>-<y>.png`. DRAC22
+only, keyed to cluster-centre coordinates.
+_Avoid_: per-seed GT, split GT
+
+**Evaluation Unit**:
+What one scored row represented — a whole image or a single seed. Only the
+whole image remains.
+_Avoid_: metric level, granularity, scope

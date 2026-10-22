@@ -16,14 +16,13 @@ function cfg = arm(cfg, name)
 %  archive/pre-cleanup does.
 %
 %  Arms
-%    "clustered"            DRAC22, clustered centres, 3 channels. The original
-%                           baseline; per-segment scoring is valid only here.
 %    "unclustered"          DRAC22, raw detections, 2 channels.
 %    "unclustered_boundary" "unclustered" with the "boundary" claim rule.
 %                           Borrows that arm's fold networks, so the two pair
 %                           image by image.
 %
 %  Always apply to a fresh cnngvf.defaults(): an arm only sets what differs.
+%  The "clustered" arm and per-segment scoring are at tag archive/clustered-arm.
 %
 %  See also CNNGVF.DEFAULTS, CNNGVF.MANIFEST, CNNGVF.LOADPOINTS, RUN_CV.
 
@@ -46,8 +45,6 @@ a = table.(key);
 
 cfg.Arm            = string(key);
 cfg.ActiveDatasets = a.datasets;
-cfg.Points         = a.points;
-cfg.EvalMode       = a.evalMode;
 cfg.Denoise        = a.denoise;
 cfg.Vessel.enabled = a.vessel;
 cfg.Patch.perSeed  = a.perSeed;
@@ -65,10 +62,6 @@ end
 cfg.Paths.Model  = fullfile(cfg.Paths.Main, 'models', a.model);
 cfg.Paths.Output = fullfile(cfg.Paths.Main, 'result', a.output);
 
-% Per-seed ground truth belongs to the arm's first dataset.
-primary = cfg.Datasets(arrayfun(@(d) d.Name == a.datasets(1), cfg.Datasets));
-cfg.Paths.SegGT = primary.SegGT;
-
 % The split depends on the domain, so it must be re-derived here.
 cfg.Split.Val = cnngvf.valSplit(cfg);
 end
@@ -81,20 +74,14 @@ end
 function t = armTable()
 % seedTolerance 0 and claimRule "centroid" are what these arms were trained
 % and measured with.
-t.clustered = struct( ...
-    'datasets', "DRAC22", 'points', "clustered", 'evalMode', "segment", ...
-    'denoise', [3 3], 'vessel', true, 'perSeed', 16, 'seedTolerance', 0, ...
-    'claimRule', "centroid", 'cvModelArm', "", ...
-    'model', 'rnvNet.mat', 'output', '');
-
 t.unclustered = struct( ...
-    'datasets', "DRAC22", 'points', "unclustered", 'evalMode', "image", ...
+    'datasets', "DRAC22", ...
     'denoise', [], 'vessel', false, 'perSeed', 4, 'seedTolerance', 0, ...
     'claimRule', "centroid", 'cvModelArm', "", ...
     'model', 'rnvNet_unclustered.mat', 'output', 'unclustered');
 
 t.unclustered_boundary = struct( ...
-    'datasets', "DRAC22", 'points', "unclustered", 'evalMode', "image", ...
+    'datasets', "DRAC22", ...
     'denoise', [], 'vessel', false, 'perSeed', 4, 'seedTolerance', 0, ...
     'claimRule', "boundary", 'cvModelArm', "unclustered", ...
     'model', 'rnvNet_unclustered.mat', 'output', 'unclustered_boundary');

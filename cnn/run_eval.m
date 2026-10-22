@@ -3,8 +3,8 @@ function [perUnit, summary] = run_eval(resultDir, cfg)
 %
 %  run_eval                              % score the current configuration's output
 %  run_eval(resultDir)                   % score another run's directory
-%  run_eval(resultDir, "clustered")      % a frozen arm's protocol
-%  run_eval(resultDir, cfg)              % cfg.EvalMode picks the unit
+%  run_eval(resultDir, "unclustered")    % a frozen arm's protocol
+%  run_eval(resultDir, cfg)              % custom config
 %  [perUnit, summary] = run_eval(...)
 %
 %  run_batch welds segmentation to scoring, so changing how results are scored
@@ -12,15 +12,14 @@ function [perUnit, summary] = run_eval(resultDir, cfg)
 %  pixel-identical masks. This reads combined/ and segment/ off disk and scores
 %  them in about a second.
 %
-%  Use it to re-score after changing cfg.EvalMode, after correcting ground
-%  truth, or to score one run's masks under another run's protocol.
+%  Use it to re-score after correcting ground truth, or to score one run's masks under another run's protocol.
 %
 %  Seeds are recovered from the segment/ filenames (<stem>-<x>-<y>.png), not
 %  from the localization CSV. The masks and the coordinates that scored them
 %  then cannot disagree, however the CSV has changed since - which matters
 %  here, because the localization files have been revised twice.
 %
-%  Writes per_<mode>.csv and run_summary.txt into resultDir, exactly as
+%  Writes per_image.csv and run_summary.txt into resultDir, exactly as
 %  run_batch does.
 %
 %  See also RUN_BATCH, CNNGVF.EVALUATE, CNNGVF.WRITESUMMARY.
@@ -28,7 +27,7 @@ function [perUnit, summary] = run_eval(resultDir, cfg)
 if nargin < 2
     cfg = cnngvf.defaults();
 elseif isstring(cfg) || ischar(cfg)
-    cfg = cnngvf.arm(cnngvf.defaults(), cfg);   % run_eval(dir, "clustered")
+    cfg = cnngvf.arm(cnngvf.defaults(), cfg);   % run_eval(dir, "unclustered")
 end
 if nargin < 1 || isempty(resultDir)
     resultDir = cfg.Paths.Output;
@@ -48,7 +47,7 @@ if isempty(d)
     error('cnngvf:runEval:noMasks', 'No masks found in %s', combinedDir);
 end
 
-fprintf('run_eval | %s | %d images | mode: %s\n', cfg.Paths.Output, numel(d), cfg.EvalMode);
+fprintf('run_eval | %s | %d images\n', cfg.Paths.Output, numel(d));
 
 results(numel(d)) = struct('image', "", 'seeds', [], 'perSeed', {{}}, 'mask', []);
 for i = 1:numel(d)
@@ -63,14 +62,14 @@ end
 
 [perUnit, summary] = cnngvf.evaluate(results, cfg);
 
-csvName = "per_" + cfg.EvalMode + ".csv";
+csvName = "per_image.csv";
 writetable(perUnit, fullfile(cfg.Paths.Output, csvName));
 cnngvf.writeSummary(fullfile(cfg.Paths.Output, 'run_summary.txt'), ...
     cfg, perUnit, summary, []);
 
 if summary.nUnits > 0
-    fprintf('Scored %d %ss: mean IoU %.4f (median %.4f), mean F1 %.4f (median %.4f)\n', ...
-        summary.nUnits, cfg.EvalMode, summary.meanIou, summary.medianIou, ...
+    fprintf('Scored %d images: mean IoU %.4f (median %.4f), mean F1 %.4f (median %.4f)\n', ...
+        summary.nUnits, summary.meanIou, summary.medianIou, ...
         summary.meanF1, summary.medianF1);
     fprintf('Precision %.4f, Recall %.4f\n', summary.meanPrecision, summary.meanRecall);
     if height(summary.perDataset) > 1

@@ -7,7 +7,7 @@ function cfg = defaults()
 %  a relaxed threshold around seeds P left empty, then morphology and seed
 %  claiming. See docs/SPEC.md for the measurement behind each value.
 %
-%  This IS the "DRACTUH_unclustered" arm. cnngvf.arm overrides it for the three
+%  This IS the "DRACTUH_unclustered" arm. cnngvf.arm overrides it for the two
 %  frozen arms. Override any field before use, e.g.
 %     cfg = cnngvf.defaults(); cfg.Post.tau = 0.55;
 %
@@ -16,8 +16,7 @@ function cfg = defaults()
 %               and localization CSVs live, and how an image name maps to its
 %               mask name. See cnngvf.manifest.
 %    ActiveDatasets  Which of them are in the domain.
-%    Points     "clustered" | "unclustered" - which point set seeds the run.
-%    Paths      Base/Main/Model/Output, plus SegGT for per-seed scoring.
+%    Paths      Base/Main/Model/Output.
 %    Split      Derived validation split; every other domain image trains.
 %    Vessel     Optional Frangi input channel (off).
 %    Patch      CNN patch geometry, seed heat-map sigma, sampling.
@@ -55,12 +54,8 @@ tuh  = fullfile(baseDir, 'TUH');
 cfg.Datasets(1).Name        = "DRAC22";
 cfg.Datasets(1).Img         = drac;
 cfg.Datasets(1).GT          = fullfile(baseDir, 'RNV-DRAC22GT', 'FilledGT');
-% One mask per CLUSTERED seed, <stem>-<x>-<y>.png, from separate_segments.py.
-% Only the "clustered" arm's EvalMode "segment" reads it.
-cfg.Datasets(1).SegGT       = fullfile(baseDir, 'RNV-DRAC22GT', 'SegmentFilledGT');
 cfg.Datasets(1).GtFrom      = "^(.*)$";
 cfg.Datasets(1).GtTo        = "$1";
-cfg.Datasets(1).Clustered   = fullfile(drac, 'DRAC22_RNV_Localization_Points_Sorted.csv');
 cfg.Datasets(1).Unclustered = fullfile(drac, 'DRAC_RNV_Points_Unclustered.csv');
 
 % ZEISS PLEX Elite. The burned-in acquisition overlay is deliberately left in
@@ -68,15 +63,11 @@ cfg.Datasets(1).Unclustered = fullfile(drac, 'DRAC_RNV_Points_Unclustered.csv');
 cfg.Datasets(2).Name        = "TUH";
 cfg.Datasets(2).Img         = fullfile(tuh, 'nvImages');
 cfg.Datasets(2).GT          = fullfile(tuh, 'nvGtImages');
-cfg.Datasets(2).SegGT       = "";     % no per-seed ground truth exists
 cfg.Datasets(2).GtFrom      = "^nv (.*)$";
 cfg.Datasets(2).GtTo        = "gt $1";
-cfg.Datasets(2).Clustered   = fullfile(tuh, 'TUH_RNV_Localization_Points.csv');
 cfg.Datasets(2).Unclustered = fullfile(tuh, 'TU_RNV_Points_Unclustered.csv');
 
 cfg.ActiveDatasets = [cfg.Datasets.Name];
-cfg.Points         = "unclustered";
-cfg.Paths.SegGT    = cfg.Datasets(1).SegGT;
 
 % Median filter kernel on load, [] for none. Off: it measured ~0.
 cfg.Denoise = [];
@@ -130,12 +121,6 @@ else
 end
 
 % --- Evaluation ------------------------------------------------------------
-%  "image"   one row per image: union mask vs the whole FilledGT. The only
-%            mode valid across both datasets and for unclustered points.
-%  "segment" one row per seed vs SegmentFilledGT/<stem>-<x>-<y>.png. DRAC22 +
-%            clustered points only; the "clustered" arm uses it.
-cfg.EvalMode = "image";
-
 % Restrict scoring to these images (empty = all). run_cv sets it per fold.
 cfg.Images = strings(0, 1);
 

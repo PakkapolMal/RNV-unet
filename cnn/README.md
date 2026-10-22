@@ -12,7 +12,7 @@ The folder was `CNN+GVF/` until 2026-09-25, when the GVF + level-set stages were
 ```
 +cnngvf/                package - one stage per file, all take a cfg struct
   defaults.m            THE current configuration; dataset registry, toolbox guard
-  arm.m                 the three frozen arms, as overrides on defaults
+  arm.m                 the two frozen arms, as overrides on defaults
   manifest.m            the image domain: name -> image, mask, dataset
   loadPoints.m          localization points across every active dataset
   valSplit.m            derive the validation split across datasets + area range
@@ -29,8 +29,7 @@ The folder was `CNN+GVF/` until 2026-09-25, when the GVF + level-set stages were
   segmentImage.m        all of the above, one image
   probCache.m           per-fold P cache with a leakage guard
   cvFolds.m             deterministic area-stratified folds over the domain
-  evaluate.m            scoring, whole-image or per-segment (cfg.EvalMode)
-  segGtFile.m           seed -> its SegmentFilledGT path (clustered arm only)
+  evaluate.m            whole-image scoring
   loadMask.m metrics.m saveOverlay.m writeSummary.m    small I/O helpers
 run_train.m             train
 run_batch.m             segment + score every image (mostly in-sample)
@@ -81,21 +80,18 @@ Every runner takes nothing (the current configuration), a frozen arm's name, or 
 
 Output goes to `result/<arm>/`:
 - `combined/<stem>.png` — union mask per image
-- `segment/<stem>-<x>-<y>.png` — one mask per seed, named like the ground truth
+- `segment/<stem>-<x>-<y>.png` — one mask per seed; `run_eval` recovers seeds from the names
 - `overlay/<stem>.png` — image + seeds + final contours
 - `prob/<stem>.png` — the CNN probability map
-- `per_image.csv` (or `per_segment.csv`), `run_summary.txt`
+- `per_image.csv`, `run_summary.txt`
 - `cv/` from `run_cv`: per-fold outputs, `probcache/`, and the aggregate `per_image.csv`
 - `cache/` from `run_cache`: `per_image.csv`, `run_summary.txt`
 
 ## Evaluation
 
-Metrics are `cnngvf.metrics` (IoU, F1, precision, recall). `cfg.EvalMode = "image"` scores
-the union mask against the whole `FilledGT` mask, one row per image — the only valid unit
-for unclustered points and across both datasets. `"segment"` scores each seed against its
-own `SegmentFilledGT` file; it exists for the frozen `clustered` arm, does not charge for
-lesions no seed claims (reported as `unclaimedGtPx` instead), and is not comparable with
-`"image"`.
+Metrics are `cnngvf.metrics` (IoU, F1, precision, recall), scoring the union mask against
+the whole `FilledGT` mask, one row per image. Per-segment scoring is at tag
+`archive/clustered-arm`.
 
 Quote cross-validated numbers only: `run_batch` scores images that trained its model. See
 the reporting rules in [SPEC.md](../docs/SPEC.md#reporting-rules).

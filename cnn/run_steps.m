@@ -62,7 +62,7 @@ end
 [names, seeds] = cnngvf.loadPoints(cfg);
 seeds = seeds(names == imageName, :);
 if isempty(seeds)
-    error('cnngvf:runSteps:noSeeds', '%s carries no %s points.', imageName, cfg.Points);
+    error('cnngvf:runSteps:noSeeds', '%s carries no points.', imageName);
 end
 
 outDir = fullfile(cfg.Paths.Output, 'steps', char(stem));
@@ -215,7 +215,7 @@ fprintf(fid, '================================\n');
 fprintf(fid, 'Timestamp : %s\n', datetime('now', 'Format', 'yyyy-MM-dd HH:mm:ss'));
 fprintf(fid, 'Arm       : %s\n', cfg.Arm);
 fprintf(fid, 'Model     : %s\n', cfg.Paths.Model);
-fprintf(fid, 'Seeds     : %d %s points\n', size(seeds, 1), cfg.Points);
+fprintf(fid, 'Seeds     : %d points\n', size(seeds, 1));
 fprintf(fid, 'Runtime   : %.1f s\n\n', elapsed);
 
 fprintf(fid, 'Stage pixel counts\n------------------\n');

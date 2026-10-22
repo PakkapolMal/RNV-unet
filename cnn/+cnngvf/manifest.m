@@ -8,7 +8,6 @@ function M = manifest(cfg)
 %        Dataset  "DRAC22" / "TUH"
 %        ImgPath  absolute path to the image
 %        GtPath   absolute path to its whole-image ground-truth mask
-%        SegGtDir per-seed ground-truth directory, or "" where none exists
 %        GtPx     ground-truth foreground area, for area stratification
 %
 %  This exists because an image used to BE its filename: one string keyed the
@@ -32,7 +31,7 @@ function M = manifest(cfg)
 %  See also CNNGVF.LOADPOINTS, CNNGVF.ARM, CNNGVF.CVFOLDS, CNNGVF.PREPAREDATA.
 
 active = cfg.ActiveDatasets;
-rows   = cell(0, 6);
+rows   = cell(0, 5);
 
 for d = 1:numel(cfg.Datasets)
     Ds = cfg.Datasets(d);
@@ -60,7 +59,7 @@ for d = 1:numel(cfg.Datasets)
         end
         rows(end + 1, :) = {name, Ds.Name, ...
             string(fullfile(Ds.Img, char(name))), string(gtPath), ...
-            string(Ds.SegGT), nnz(cnngvf.loadMask(gtPath))}; %#ok<AGROW>
+            nnz(cnngvf.loadMask(gtPath))}; %#ok<AGROW>
     end
 end
 
@@ -71,12 +70,11 @@ if isempty(rows)
 end
 
 M = cell2table(rows, 'VariableNames', ...
-    {'Name', 'Dataset', 'ImgPath', 'GtPath', 'SegGtDir', 'GtPx'});
+    {'Name', 'Dataset', 'ImgPath', 'GtPath', 'GtPx'});
 M.Name     = string(M.Name);
 M.Dataset  = string(M.Dataset);
 M.ImgPath  = string(M.ImgPath);
 M.GtPath   = string(M.GtPath);
-M.SegGtDir = string(M.SegGtDir);
 
 [u, ~, ic] = unique(M.Name);
 if numel(u) < height(M)

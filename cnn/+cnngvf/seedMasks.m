@@ -36,9 +36,8 @@ function [masks, union] = seedMasks(BW, seeds, minArea, rule)
 %  Defaults to "centroid" when omitted. The pipeline passes cfg.Post.ClaimRule:
 %  "boundary" by default, "centroid" on the frozen arms.
 %
-%  Per-seed masks are what EvalMode "segment" compares against
-%  RNV-DRAC22GT/SegmentFilledGT/<stem>-<x>-<y>.png; the union is what gets
-%  written as the image-level mask.
+%  The union of the per-seed masks is what gets written and scored as the
+%  image-level mask.
 %
 %  See also CNNGVF.MASKFROMPROB, CNNGVF.EVALUATE.
 

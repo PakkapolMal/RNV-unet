@@ -160,7 +160,6 @@ A `[3 3]` median filter (`cfg.Denoise`) and a Frangi vesselness channel
 (`cfg.Vessel.enabled`, `fibermetric` scales `[2 4 6 8]`). Both measured ≈ 0 and are off; the
 CNN extracts what it needs from raw intensity
 ([results/2026-09-01-filters-perseed-levelset.md](results/2026-09-01-filters-perseed-levelset.md)).
-The frozen `clustered` arm still uses both.
 
 ### 3. Seed heat-map — `04_seed_heatmap.png`, `patches/seed_NN.png`
 
@@ -270,23 +269,21 @@ configuration; the frozen arms' overrides live in [`+cnngvf/arm.m`](../cnn/+cnng
 | training seeds | the unclustered CSVs of both datasets — 874 rows, **842 usable** |
 | inference seeds | **all 874** — rejection uses ground truth, so it cannot apply at inference |
 | labels | the GT component containing each seed, or the nearest within `Patch.seedTolerance` |
-| scoring | union mask vs the whole GT mask (`EvalMode = "image"`) |
+| scoring | union mask vs the whole GT mask |
 
 `cnngvf.manifest` defines the domain by scanning each dataset's image directory and keeping
 what has a mask, so adding images needs no code change. Adding a *dataset* needs one entry in
 `cfg.Datasets`.
 
-Labels are computed by component lookup, not read from `SegmentFilledGT/`. That reproduces all
-35 DRAC22 segment files exactly, and it works for point sets those files are not keyed to —
-which is what lets the unclustered detections and TUH be trained on at all. Seeds further than
+Labels are computed by component lookup, not read from per-seed files. That works for any
+point set, which is what lets the unclustered detections and TUH be trained on at all. Seeds further than
 `Patch.seedTolerance` from every lesion are dropped from training: labelling them against pure
 background would teach the network to ignore its own heat-map.
 
 **Scoring must be whole-image, not per-segment.** Several detections land on one lesion, so
 per-segment scoring would count that lesion once per detection and weight lesions by how many
 detections they attracted. Whole-image scoring also charges for lesions missed entirely.
-`EvalMode = "segment"` exists only for the frozen `clustered` arm and is fenced to DRAC22 +
-clustered points; `cnngvf.evaluate` errors with the reason otherwise.
+Per-segment scoring went with the `clustered` arm; both are at tag `archive/clustered-arm`.
 
 ### Input channels
 
@@ -402,9 +399,6 @@ DRAC22, `nv (N)` → `gt (N)` for TUH.
 **Ground-truth labels are computed, not read.** A seed is labelled with the GT connected
 component it falls in. That is what lets point sets with no per-seed files be trained on.
 
-**`cfg.EvalMode` picks the unit, and the units are not comparable.** On identical predictions,
-recall once fell 0.681 → 0.527 purely from the mode change.
-
 **`run_batch` clears its output directories before writing.** Per-seed masks are named by
 coordinates, so a changed CSV would otherwise leave two generations side by side — and
 `run_eval` recovers seeds from those filenames.
@@ -437,13 +431,13 @@ ones in `+cnngvf/arm.m` override only what differs:
 | arm | datasets | points | channels | perSeed | fallback | claim | output |
 |---|---|---|---|---|---|---|---|
 | **`DRACTUH_unclustered`** | DRAC22 + TUH | unclustered | 1 (+heat-map) | 4 | relax 0.20 | boundary + seed hull 128 | `result/DRACTUH_unclustered/` |
-| `clustered` | DRAC22 | clustered | 2 (+heat-map) | 16 | disk | centroid | `result/` |
 | `unclustered` | DRAC22 | unclustered | 1 (+heat-map) | 4 | disk | centroid | `result/unclustered/` |
 | `unclustered_boundary` | DRAC22 | unclustered | 1 (+heat-map) | 4 | disk | boundary | `result/unclustered_boundary/` |
 
 The frozen arms keep their trained networks loadable, but their recorded numbers were measured
 with the level set; on `master` they run the threshold pipeline and no longer reproduce those
-records. Tag `archive/pre-cleanup` does.
+records. Tag `archive/pre-cleanup` does. The `clustered` arm is at tag `archive/clustered-arm`:
+its per-seed ground truth and clustered CSVs are not in the standardized `datasets/`.
 
 Everything that must agree between training and inference is set in one place, so a runner
 cannot disagree with the network it loads. Arms over the **same** domain share folds and

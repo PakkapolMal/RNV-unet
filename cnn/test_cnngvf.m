@@ -21,7 +21,6 @@ testRunCache(cfg);
 testDomain(cfg);
 testArms(cfg);
 testSeedTolerance(cfg);
-testSegGtNaming(cfg);
 
 fprintf('\nAll checks passed.\n');
 end
@@ -375,7 +374,7 @@ assert(isequal(cnngvf.arm(cfg, "DRACTUH_unclustered"), cfg), ...
     'cnngvf.arm("DRACTUH_unclustered") modified the defaults');
 assert(cfg.Post.fallbackMode == "relax" && cfg.Post.relaxFloor == 0.20, ...
     'the current configuration does not relax at 0.20');
-for a = ["clustered", "unclustered", "unclustered_boundary"]
+for a = ["unclustered", "unclustered_boundary"]
     assert(cnngvf.arm(cfg, a).Post.fallbackMode == "disk", 'frozen arm %s moved off the disk', a);
 end
 
@@ -427,38 +426,6 @@ assert(L(150, 210) == 0 && dist(150, 210) > 0, ...
     'tolerance 0 would still label an outside seed');
 
 fprintf('  seed tolerance            ok (%g px, boundary distance)\n', tol);
-end
-
-
-function testSegGtNaming(cfg)
-% The evaluation keys ground truth by seed coordinates, so the filename must
-% match what separate_segments.py wrote. A naming drift here would silently
-% score every segment against nothing.
-%
-% DRAC22 + clustered points only. TUH ships no per-seed masks and the
-% unclustered points are not what the files are named for, so the "clustered"
-% arm is the only place this can be checked at all.
-cfg = cnngvf.arm(cfg, "clustered");
-
-assert(strcmp(cnngvf.segGtFile(cfg, "458.png", [631 641]), ...
-    fullfile(cfg.Paths.SegGT, '458-631-641.png')), 'segGtFile naming changed');
-
-[names, seeds] = cnngvf.loadPoints(cfg);
-missing = strings(0, 1);
-for k = 1:numel(names)
-    p = cnngvf.segGtFile(cfg, names(k), seeds(k, :));
-    if ~isfile(p)
-        missing(end + 1, 1) = string(p); %#ok<AGROW>
-    end
-end
-% Not assert: it evaluates its message arguments even when the check passes,
-% and missing(1) does not exist in the passing case.
-if ~isempty(missing)
-    error('%d of %d clustered seeds have no ground-truth segment file, first: %s', ...
-        numel(missing), numel(names), missing(1));
-end
-
-fprintf('  segment gt naming         ok (%d clustered seeds all resolve)\n', numel(names));
 end
 
 

@@ -18,8 +18,8 @@ elseif isstring(cfg) || ischar(cfg)
     cfg = cnngvf.arm(cnngvf.defaults(), cfg);
 end
 
-fprintf('run_train | arm %s | datasets %s | points %s\n', ...
-    cfg.Arm, strjoin(cfg.ActiveDatasets, ' + '), cfg.Points);
+fprintf('run_train | arm %s | datasets %s\n', ...
+    cfg.Arm, strjoin(cfg.ActiveDatasets, ' + '));
 fprintf('Model out : %s\n', cfg.Paths.Model);
 
 t   = tic;
