@@ -7,6 +7,12 @@ empty, seed claiming, and a seed hull that fills between nearby seeds. MATLAB R2
 
 ## Current result
 
+> **Stale since 2026-10-22.** The pipeline now reads the standardized 69-image
+> [`datasets/`](datasets/), and this table was measured on the previous 68-image data with
+> different points. No number exists yet on the new domain: it needs a fresh `run_cv`, and
+> `run_cache` refuses the old cache because the folds moved
+> ([docs/results/2026-10-22-standardized-datasets.md](docs/results/2026-10-22-standardized-datasets.md)).
+
 Out-of-sample, 5-fold cross-validation, **68 images** (DRAC22 41 + TUH 27), whole-image
 scoring, current configuration (`cnngvf.defaults()`):
 
@@ -35,7 +41,7 @@ run_steps("458.png") % every intermediate stage of one image
 run_cache            % score the cached CV P; reproduces the table above in seconds
 ```
 
-Datasets (`RNV-DRAC22NV/`, `RNV-DRAC22GT/`, `TUH/`) sit next to this repo, outside it.
+Datasets: the standardized, read-only [`datasets/`](datasets/) (69 images; see CLAUDE.md).
 Details: [cnn/README.md](cnn/README.md).
 
 ## Layout

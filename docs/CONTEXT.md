@@ -3,7 +3,7 @@ title: RNV Segmentation — Domain Glossary
 description: The canonical vocabulary of the RNV segmentation context. One term, one meaning.
 kind: glossary
 status: current
-dataset: DRAC22 + TUH (68 images)
+dataset: DRAC22 + TUH (69 images)
 updated: 2026-09-30
 ---
 
@@ -92,20 +92,20 @@ _Avoid_: false positive (ambiguous — the segmenter has those too), bad point, 
 ### The data
 
 **Domain**:
-The set of images this configuration trains and scores on — every image with
-ground truth across the active datasets. Currently 68.
+The set of images this configuration trains and scores on — every image in the
+active datasets, whether or not it carries a localization point. Currently 69.
 _Avoid_: dataset (for the whole set), corpus, cohort
 
 **Dataset**:
 One source of images, masks and localization CSVs, with its own naming rule.
-Two exist: **DRAC22** (41 images) and **TUH** (27 images).
+Two exist: **DRAC22** (42 images) and **TUH** (27 images).
 _Avoid_: source, cohort, site
 
 **Manifest**:
 The table that resolves an image name to its image file, its mask, and its
 dataset. The single join between an image and its ground truth — necessary
 because DRAC22 pairs `458.png` with `458.png` while TUH pairs `nv (1).png` with
-`gt (1).png`.
+`gt (1).tif`.
 _Avoid_: index, catalogue, registry
 
 **FilledGT**:

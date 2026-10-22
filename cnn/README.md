@@ -46,8 +46,9 @@ test_cnngvf.m           self-check, 9 checks
 Parallel Computing Toolbox. `cnngvf.defaults` fails immediately with a clear message if one
 is missing.
 
-The datasets live outside the repo, next to `RNV-Claude/`: `RNV-DRAC22NV/`,
-`RNV-DRAC22GT/` and `TUH/`. `models/` and `result/` are git-ignored.
+The datasets are the standardized set in [`../datasets/`](../datasets/) (`DRAC22_raw/`,
+`DRAC22_filled_gt/`, `TUH_raw/`, `TUH_filled_gt/`, and the two unclustered point CSVs at its
+top level). They are read-only; see CLAUDE.md. `models/` and `result/` are git-ignored.
 
 **GPU memory.** At patch 512 an 8 GB laptop GPU has little headroom, so `cfg.Net.miniBatch`
 is 2. On a larger card, raising it is the first thing to try for speed.

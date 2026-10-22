@@ -3,7 +3,7 @@ function M = manifest(cfg)
 %
 %  M = cnngvf.manifest(cfg)
 %
-%  M : table with one row per ground-truth image in the active datasets
+%  M : table with one row per image in the active datasets
 %        Name     "458.png" / "nv (1).png"  - the key everything else uses
 %        Dataset  "DRAC22" / "TUH"
 %        ImgPath  absolute path to the image
@@ -13,10 +13,12 @@ function M = manifest(cfg)
 %  This exists because an image used to BE its filename: one string keyed the
 %  image file, the mask, the CSV rows and every output name, and every stage
 %  rebuilt those paths with its own fullfile call. That held only while image
-%  and mask shared a stem in one directory each. TUH pairs nvImages/nv (N).png
-%  with nvGtImages/gt (N).png - different stem, different directory - so the
-%  mapping is now per-dataset data (Ds.GtFrom / Ds.GtTo) resolved here, once,
-%  instead of seven times inline.
+%  and mask shared a name in one directory each. TUH pairs TUH_raw/nv (N).png
+%  with TUH_filled_gt/gt (N).tif, so the mapping is per-dataset data
+%  (Ds.GtFrom / Ds.GtTo) resolved here, once.
+%
+%  Every image is in the domain, and every image must have a mask: an image
+%  without one is an error, never a silent skip (CLAUDE.md, "Datasets").
 %
 %  Only datasets named in cfg.ActiveDatasets are included, so an arm can run on
 %  one dataset or on all of them without any other file knowing which.
@@ -47,15 +49,15 @@ for d = 1:numel(cfg.Datasets)
             'Dataset "%s": ground-truth directory not found: %s', Ds.Name, Ds.GT);
     end
 
-    % The domain is defined by the IMAGES that have a mask, not by the mask
-    % directory: RNV-DRAC22GT/FilledGT also holds a stray fill.py, and a
-    % dataset may ship masks for images it does not ship.
+    % The domain is defined by the IMAGES, not by the mask directory:
+    % DRAC22_filled_gt also holds a stray fill.py.
     f = dir(fullfile(Ds.Img, '*.png'));
     for i = 1:numel(f)
         name   = string(f(i).name);
-        gtPath = gtFor(Ds, name);
+        gtPath = fullfile(Ds.GT, regexprep(name, Ds.GtFrom, Ds.GtTo));
         if ~isfile(gtPath)
-            continue;   % no ground truth: outside the domain
+            error('cnngvf:manifest:noGt', ...
+                'Dataset "%s": %s has no mask at %s', Ds.Name, name, gtPath);
         end
         rows(end + 1, :) = {name, Ds.Name, ...
             string(fullfile(Ds.Img, char(name))), string(gtPath), ...
@@ -65,7 +67,7 @@ end
 
 if isempty(rows)
     error('cnngvf:manifest:empty', ...
-        'No images with ground truth in the active datasets (%s).', ...
+        'No images in the active datasets (%s).', ...
         strjoin(active, ', '));
 end
 
@@ -88,15 +90,3 @@ end
 M = sortrows(M, 'Name');
 end
 
-
-% =========================================================================
-% LOCAL FUNCTIONS
-% =========================================================================
-
-function p = gtFor(Ds, imgName)
-%GTFOR Ground-truth path for one image, via the dataset's stem rewrite.
-%  DRAC22 is the identity ("458.png" -> "458.png"); TUH maps "nv (1)" -> "gt (1)".
-[~, stem, ext] = fileparts(char(imgName));
-gtStem = regexprep(stem, Ds.GtFrom, Ds.GtTo);
-p = fullfile(Ds.GT, [gtStem ext]);
-end

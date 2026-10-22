@@ -3,7 +3,7 @@ title: RNV Segmentation Pipeline — Specification
 description: The working specification of the current pipeline — architecture, contracts, parameters, and where the measurement behind every non-obvious choice lives.
 kind: specification
 status: current
-dataset: DRAC22 + TUH (68 images)
+dataset: DRAC22 + TUH (69 images, standardized datasets/)
 updated: 2026-09-30
 ---
 
@@ -17,17 +17,23 @@ cross-validated number is in the [README](../README.md).
 
 ## The domain
 
-**68 images across two datasets**, pooled. Every image with ground truth is in
-scope; `cnngvf.manifest` is the single place that says so.
+**69 images across two datasets**, pooled, read from the standardized
+[`../datasets/`](../datasets/) shared with the peer comparisons. **Every image is in scope,
+with or without points**, and every image must have a mask; `cnngvf.manifest` is the single
+place that says so, and errors on an image without a mask. The datasets are read-only
+(CLAUDE.md, "Datasets").
 
-| | images | points (unclustered) | usable | rejected | GT area range |
-|---|---|---|---|---|---|
-| **DRAC22** | 41 | 283 | 259 | 24 | 2 016 – 239 227 px |
-| **TUH** | 27 | 591 | 583 | 8 | 1 106 – 432 533 px |
-| **combined** | **68** | **874** | **842** | **32 (3.7%)** | 1 106 – 432 533 px |
+| | images | points (unclustered) | usable | rejected | no points | GT area range |
+|---|---|---|---|---|---|---|
+| **DRAC22** | 42 | 280 | 253 | 27 | 3 | 601 – 239 227 px |
+| **TUH** | 27 | 591 | 584 | 7 | 0 | 1 126 – 432 602 px |
+| **combined** | **69** | **871** | **837** | **34 (3.9%)** | **3** | 601 – 432 602 px |
 
 Usable counts are at `Patch.seedTolerance = 20` — see [Seed tolerance](#seed-tolerance)
-below. At tolerance 0 (the frozen arms' setting) they are 234 / 558 / 793.
+below. At tolerance 0 (the frozen arms' setting) they are 228 / 562 / 790.
+[results/2026-10-22-standardized-datasets.md](results/2026-10-22-standardized-datasets.md)
+lists what changed from the previous 68-image domain. Figures elsewhere in this file that
+name 68 images or 874 points were measured on that domain.
 
 Both are OCTA en-face, 1024×1024, but from **different devices** — DRAC22 as
 distributed by the DRAC 2022 challenge, TUH from a ZEISS PLEX Elite. TUH
@@ -84,20 +90,21 @@ no filter that reads only `P` came close: stray seeds fire with `P ≈ 1`, so th
 belongs to the localization stage ([results/2026-09-17-refine.md](results/2026-09-17-refine.md),
 step 2).
 
-Two images end up with ground truth but no usable seed — **`299.png` and `445.png`**. They
-are still scored, and score ≈ 0. That is a localization-stage gap charged to the segmenter,
-which is the honest accounting: whole-image scoring charges for lesions missed entirely.
+Six DRAC22 images end up with ground truth but no usable seed — **`082.png`, `217.png` and
+`445.png`** have no points at all, **`299.png`, `573.png` and `664.png`** only points beyond the
+tolerance. They are still scored, and score ≈ 0. That is a localization-stage gap charged to
+the segmenter, which is the honest accounting: whole-image scoring charges for lesions missed
+entirely.
 
-**Data-quality note (2026-09-29).** Both are upstream localization bugs, not segmentation
-failures. All four of `299.png`'s detections are errors, and **`445.png`'s single detection,
+**Data-quality note (2026-09-29, 68-image domain).** `299.png` and `445.png` were upstream
+localization bugs, not segmentation failures. All four of `299.png`'s detections are errors, and **`445.png`'s single detection,
 (878, 653), is a copy of `443.png`'s** — a copy error in the detector output, so other copies
 may exist unchecked. Points placed from the ground truth were tried as training-only seeds
 and reverted: two extra seeds could not move `P` measurably, and a second hand-edited CSV was
-a maintenance risk. They are kept, unused, beside the images as
+a maintenance risk. They are kept, unused, in `datasets/DRAC22_raw/` as
 `DRAC_RNV_Points_Unclustered_gt_corrected.csv`. The fix belongs in the localization stage;
-the pipeline reads only the detector's CSV. A mean over the 66 images with working
-detections may be reported as a labelled secondary figure, never in place of the 68-image
-headline.
+the pipeline reads only the detector's CSV. A mean over the images with working detections
+may be reported as a labelled secondary figure, never in place of the all-image headline.
 
 ### The TUH acquisition overlay
 
@@ -265,14 +272,16 @@ configuration; the frozen arms' overrides live in [`+cnngvf/arm.m`](../cnn/+cnng
 
 | item | value |
 |---|---|
-| images | 1024×1024 OCTA en-face — **68 with ground truth**, all seeded (41 DRAC22 + 27 TUH) |
-| training seeds | the unclustered CSVs of both datasets — 874 rows, **842 usable** |
-| inference seeds | **all 874** — rejection uses ground truth, so it cannot apply at inference |
+| images | 1024×1024 OCTA en-face — **69, all scored** (42 DRAC22 + 27 TUH); 66 carry points |
+| training seeds | the unclustered CSVs of both datasets — 871 rows, **837 usable** |
+| inference seeds | **all 871** — rejection uses ground truth, so it cannot apply at inference |
 | labels | the GT component containing each seed, or the nearest within `Patch.seedTolerance` |
 | scoring | union mask vs the whole GT mask |
 
-`cnngvf.manifest` defines the domain by scanning each dataset's image directory and keeping
-what has a mask, so adding images needs no code change. Adding a *dataset* needs one entry in
+`cnngvf.manifest` defines the domain by scanning each dataset's image directory; every image
+must have a mask, matched by the dataset's `GtFrom`/`GtTo` file-name rewrite. A point is
+matched to its image by stem (the TUH CSV names `.jpg`, the files are `.png`). Adding a
+*dataset* needs one entry in
 `cfg.Datasets`.
 
 Labels are computed by component lookup, not read from per-seed files. That works for any
@@ -352,11 +361,11 @@ archives any existing network with a timestamp before saving.
 
 ```matlab
 cd RNV-Claude/cnn
-test_cnngvf                            % 9 checks; five need the datasets mounted
+test_cnngvf                            % 9 checks; needs datasets/
 
 run_train                              % -> models/rnvNet_DRACTUH_unclustered.mat
 run_batch                              % -> result/DRACTUH_unclustered/  (mostly in-sample)
-run_cv                                 % the reportable number: 5 folds over 68 images
+run_cv                                 % the reportable number: 5 folds over 69 images
 
 run_steps("458.png")                   % every intermediate, one DRAC22 image
 run_steps("nv (21).png")               % ... or one TUH image
@@ -393,8 +402,8 @@ lands inside the image and still produces a mask.
 **An image is addressed by name, resolved through the manifest.** `cnngvf.manifest` maps a
 name to its image file, its mask and its dataset. Names must be unique across datasets — they
 are the join key for the CSVs and for output filenames — and a collision is an error. The
-image → mask rule is per-dataset data (`GtFrom`/`GtTo`, a regexprep on the stem): identity for
-DRAC22, `nv (N)` → `gt (N)` for TUH.
+image → mask rule is per-dataset data (`GtFrom`/`GtTo`, a regexprep on the file name):
+identity for DRAC22, `nv (N).png` → `gt (N).tif` for TUH.
 
 **Ground-truth labels are computed, not read.** A seed is labelled with the GT connected
 component it falls in. That is what lets point sets with no per-seed files be trained on.

@@ -1,5 +1,5 @@
 function [perUnit, summary] = run_batch(cfg)
-%RUN_BATCH Segment every seeded image in the domain and score the result.
+%RUN_BATCH Segment every image in the domain and score the result.
 %
 %  run_batch                          % the current configuration
 %  run_batch("unclustered")           % a frozen arm (see cnngvf.arm)
@@ -40,12 +40,12 @@ end
 loaded = load(cfg.Paths.Model, 'net');
 net    = loaded.net;
 
-% The domain, and the points that seed it. Both span every active dataset;
-% loadPoints has already dropped points on images with no ground truth, so
-% there is no on-disk existence check to do here.
+% The domain, and the points that seed it. Every image is segmented and
+% scored, including one with no points: it predicts nothing, and missing a
+% lesion is charged to the pipeline (CLAUDE.md, "Datasets").
 M = cnngvf.manifest(cfg);
 [names, seeds] = cnngvf.loadPoints(cfg);
-images = unique(names, 'stable');
+images = M.Name;
 
 % Optional restriction to a subset - run_cv passes a fold's held-out images so
 % the model is scored only on data it never saw. Empty means all.
@@ -53,7 +53,7 @@ if isfield(cfg, 'Images') && ~isempty(cfg.Images)
     wanted = ismember(images, string(cfg.Images));
     if ~any(wanted)
         error('cnngvf:runBatch:noneRequested', ...
-            'None of cfg.Images (%s) carry points in the active datasets (%s).', ...
+            'None of cfg.Images (%s) are in the active datasets (%s).', ...
             strjoin(string(cfg.Images), ', '), strjoin(cfg.ActiveDatasets, ', '));
     end
     images = images(wanted);

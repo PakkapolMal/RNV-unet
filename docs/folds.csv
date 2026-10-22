@@ -1,69 +1,70 @@
 image,dataset,fold
-098.png,DRAC22,1
-123.png,DRAC22,1
-135.png,DRAC22,1
-144.png,DRAC22,1
-211.png,DRAC22,1
-230.png,DRAC22,1
-319.png,DRAC22,1
-445.png,DRAC22,1
-641.png,DRAC22,1
-nv (10).png,TUH,1
 nv (21).png,TUH,1
-nv (25).png,TUH,1
-nv (3).png,TUH,1
-nv (9).png,TUH,1
-097.png,DRAC22,2
-299.png,DRAC22,2
-421.png,DRAC22,2
-429.png,DRAC22,2
-487.png,DRAC22,2
-498.png,DRAC22,2
-nv (19).png,TUH,2
-nv (2).png,TUH,2
-nv (20).png,TUH,2
 nv (22).png,TUH,2
-nv (23).png,TUH,2
-nv (27).png,TUH,2
-nv (6).png,TUH,2
-nv (8).png,TUH,2
-083.png,DRAC22,3
-109.png,DRAC22,3
-1116.png,DRAC22,3
-1163.png,DRAC22,3
-125.png,DRAC22,3
-212.png,DRAC22,3
-217.png,DRAC22,3
-458.png,DRAC22,3
-573.png,DRAC22,3
-664.png,DRAC22,3
-795.png,DRAC22,3
 nv (13).png,TUH,3
-nv (14).png,TUH,3
-nv (16).png,TUH,3
 1115.png,DRAC22,4
-134.png,DRAC22,4
-193.png,DRAC22,4
-194.png,DRAC22,4
-428.png,DRAC22,4
-461.png,DRAC22,4
-517.png,DRAC22,4
-559.png,DRAC22,4
-576.png,DRAC22,4
-nv (1).png,TUH,4
-nv (18).png,TUH,4
-nv (24).png,TUH,4
-nv (26).png,TUH,4
-1236.png,DRAC22,5
-312.png,DRAC22,5
-419.png,DRAC22,5
-443.png,DRAC22,5
-500.png,DRAC22,5
-535.png,DRAC22,5
-nv (11).png,TUH,5
-nv (12).png,TUH,5
-nv (15).png,TUH,5
 nv (17).png,TUH,5
-nv (4).png,TUH,5
-nv (5).png,TUH,5
+nv (9).png,TUH,1
+nv (27).png,TUH,2
+795.png,DRAC22,3
+461.png,DRAC22,4
+1236.png,DRAC22,5
+nv (3).png,TUH,1
+nv (2).png,TUH,2
+458.png,DRAC22,3
+nv (26).png,TUH,4
+nv (8).png,TUH,5
+nv (15).png,TUH,1
+nv (10).png,TUH,2
+212.png,DRAC22,3
+559.png,DRAC22,4
+535.png,DRAC22,5
+230.png,DRAC22,1
+498.png,DRAC22,2
+664.png,DRAC22,3
+193.png,DRAC22,4
 nv (7).png,TUH,5
+319.png,DRAC22,1
+nv (23).png,TUH,2
+1116.png,DRAC22,3
+nv (24).png,TUH,4
+nv (5).png,TUH,5
+135.png,DRAC22,1
+nv (19).png,TUH,2
+125.png,DRAC22,3
+576.png,DRAC22,4
+500.png,DRAC22,5
+211.png,DRAC22,1
+nv (14).png,TUH,2
+nv (20).png,TUH,3
+nv (18).png,TUH,4
+nv (12).png,TUH,5
+nv (25).png,TUH,1
+nv (6).png,TUH,2
+1163.png,DRAC22,3
+194.png,DRAC22,4
+312.png,DRAC22,5
+641.png,DRAC22,1
+429.png,DRAC22,2
+083.png,DRAC22,3
+517.png,DRAC22,4
+419.png,DRAC22,5
+098.png,DRAC22,1
+487.png,DRAC22,2
+109.png,DRAC22,3
+nv (1).png,TUH,4
+443.png,DRAC22,5
+nv (16).png,TUH,1
+445.png,DRAC22,2
+097.png,DRAC22,3
+134.png,DRAC22,4
+nv (11).png,TUH,5
+144.png,DRAC22,1
+299.png,DRAC22,2
+082.png,DRAC22,3
+573.png,DRAC22,4
+428.png,DRAC22,5
+nv (4).png,TUH,1
+123.png,DRAC22,2
+421.png,DRAC22,3
+217.png,DRAC22,4

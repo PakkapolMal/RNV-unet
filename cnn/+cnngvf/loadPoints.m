@@ -10,9 +10,10 @@ function [names, seeds] = loadPoints(cfg)
 %  concatenates. Columns are read positionally as (image_name, x, y), so a
 %  header rename is harmless but a column reorder is not.
 %
-%  Points naming an image outside the manifest are dropped, with a count. That
-%  is normal rather than exceptional: a localization CSV covers whatever the
-%  detector was run on, which is not necessarily the set that has ground truth.
+%  A point is matched to its image by stem, because the TUH CSV names the
+%  images "nv (N).jpg" while the files are "nv (N).png". Points naming an
+%  image outside the manifest are dropped, with a count. An image with no
+%  points is still in the domain and is still scored.
 %
 %  The points are the raw (unclustered) detections, several per lesion.
 %
@@ -42,13 +43,14 @@ for d = 1:numel(cfg.Datasets)
     seeds = [seeds; double(T{:, 2}), double(T{:, 3})];         %#ok<AGROW>
 end
 
-% Keep only points whose image is in the domain.
-M    = cnngvf.manifest(cfg);
-keep = ismember(names, M.Name);
+% Keep only points whose image is in the domain, renamed to its file name.
+M = cnngvf.manifest(cfg);
+[keep, j] = ismember(stemOf(names), stemOf(M.Name));
+names(keep) = M.Name(j(keep));
 if ~all(keep)
     dropped = unique(names(~keep));
     fprintf(['Dropped %d point(s) on %d image(s) outside the domain ' ...
-             '(no ground truth, or not in the active datasets): %s\n'], ...
+             '(not in the active datasets): %s\n'], ...
         nnz(~keep), numel(dropped), truncate(dropped));
     names = names(keep);
     seeds = seeds(keep, :);
@@ -65,6 +67,11 @@ end
 % =========================================================================
 % LOCAL FUNCTIONS
 % =========================================================================
+
+function s = stemOf(names)
+s = regexprep(names, '\.[^.]*$', '');
+end
+
 
 function s = truncate(items)
 if numel(items) > 6

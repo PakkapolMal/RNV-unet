@@ -13,6 +13,18 @@ each, and a copy here would go stale.
 - **Records** are frozen: `docs/results/*` (including `reference/`) and `docs/briefs/*`.
   Never edit one, except to fix a link or add a banner saying what superseded it.
 
+## Datasets
+
+`datasets/` is the standardized data shared with the peer comparisons: images, masks and
+unclustered localization points.
+
+- **Nobody modifies it, the user or Claude.** Do not add, delete, rename, re-encode or edit
+  any file in it, and that includes "fixing" a point or a mask. Handle its quirks in code
+  (for example, the TUH CSV names `.jpg` and the files are `.png`).
+- **Every image is evaluated.** Scoring covers every image in the domain, including an image
+  with no points or with wrong points. Do not drop or filter an image from evaluation.
+- Training may ignore incorrect images or points. That is the seed tolerance, for example.
+
 ## Changing code means changing docs — in the same commit
 
 | when you change | update |

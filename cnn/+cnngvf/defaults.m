@@ -30,42 +30,40 @@ function cfg = defaults()
 requireToolboxes();
 
 % --- Paths -----------------------------------------------------------------
-% This file lives at <base>/RNV-Claude/<pkg folder>/+cnngvf/defaults.m
+% This file lives at RNV-Claude/<pkg folder>/+cnngvf/defaults.m
 pkgDir  = fileparts(mfilename('fullpath'));            % .../+cnngvf
 mainDir = fileparts(pkgDir);                           % the runners' folder
-baseDir = fileparts(fileparts(mainDir));               % .../Fast-Gradient-Vector-Flow-main
+dataDir = fullfile(fileparts(mainDir), 'datasets');    % RNV-Claude/datasets, read-only
 
 addpath(mainDir);
 
 cfg.Arm            = "DRACTUH_unclustered";
-cfg.Paths.Base     = baseDir;
 cfg.Paths.Main     = mainDir;
 cfg.Paths.Model    = fullfile(mainDir, 'models', 'rnvNet_DRACTUH_unclustered.mat');
 cfg.Paths.Output   = fullfile(mainDir, 'result', 'DRACTUH_unclustered');
 
 % --- Dataset registry ------------------------------------------------------
-% GtFrom/GtTo are a regexprep on the image STEM that gives the mask stem:
-%   DRAC22  "^(.*)$" -> "$1"       identity
-%   TUH     "^nv (.*)$" -> "gt $1"
+% The standardized datasets shared with the peer comparisons. Never modified:
+% CLAUDE.md, "Datasets". GtFrom/GtTo are a regexprep on the image FILE NAME
+% that gives the mask file name:
+%   DRAC22  "^(.*)$" -> "$1"                    identity
+%   TUH     "^nv (.*)\.png$" -> "gt $1.tif"
 % Resolved once by cnngvf.manifest.
-drac = fullfile(baseDir, 'RNV-DRAC22NV');
-tuh  = fullfile(baseDir, 'TUH');
-
 cfg.Datasets(1).Name        = "DRAC22";
-cfg.Datasets(1).Img         = drac;
-cfg.Datasets(1).GT          = fullfile(baseDir, 'RNV-DRAC22GT', 'FilledGT');
+cfg.Datasets(1).Img         = fullfile(dataDir, 'DRAC22_raw');
+cfg.Datasets(1).GT          = fullfile(dataDir, 'DRAC22_filled_gt');
 cfg.Datasets(1).GtFrom      = "^(.*)$";
 cfg.Datasets(1).GtTo        = "$1";
-cfg.Datasets(1).Unclustered = fullfile(drac, 'DRAC_RNV_Points_Unclustered.csv');
+cfg.Datasets(1).Unclustered = fullfile(dataDir, 'DRAC_RNV_Points_Unclustered.csv');
 
 % ZEISS PLEX Elite. The burned-in acquisition overlay is deliberately left in
 % (docs/SPEC.md, "The TUH acquisition overlay").
 cfg.Datasets(2).Name        = "TUH";
-cfg.Datasets(2).Img         = fullfile(tuh, 'nvImages');
-cfg.Datasets(2).GT          = fullfile(tuh, 'nvGtImages');
-cfg.Datasets(2).GtFrom      = "^nv (.*)$";
-cfg.Datasets(2).GtTo        = "gt $1";
-cfg.Datasets(2).Unclustered = fullfile(tuh, 'TU_RNV_Points_Unclustered.csv');
+cfg.Datasets(2).Img         = fullfile(dataDir, 'TUH_raw');
+cfg.Datasets(2).GT          = fullfile(dataDir, 'TUH_filled_gt');
+cfg.Datasets(2).GtFrom      = "^nv (.*)\.png$";
+cfg.Datasets(2).GtTo        = "gt $1.tif";
+cfg.Datasets(2).Unclustered = fullfile(dataDir, 'TU_RNV_Points_Unclustered.csv');
 
 cfg.ActiveDatasets = [cfg.Datasets.Name];
 
