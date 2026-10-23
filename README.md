@@ -69,6 +69,9 @@ Details: [cnn/README.md](cnn/README.md).
 | [2026-10-01](docs/results/2026-10-01-seed-hull-claim.md) | fill only triangles on one claimed component, with or without the disk? | no: guard repaired but −0.0028 IoU; fallback-disk fragment joins are 82 % lesion |
 | [2026-10-02](docs/results/2026-10-02-minarea.md) | tune `MinArea` (100–1000 px)? | no: every fold picks 500; inert below, above ~700 px the two smallest lesions go to IoU 0 |
 | [2026-10-02 disk](docs/results/2026-10-02-minarea-disk.md) | `MinArea` × disk radius (0–30), jointly? | no: every fold picks (500, 15); the disk is near-inert under relax |
+| [2026-10-09 U-Net only](docs/results/2026-10-09-unet-only-baseline.md) | what does the network alone score, `P > 0.5` with no post-processing? (68 images, 5-fold CV) | 0.4201 vs 0.5207 full: post-processing +0.10, CI [+0.065, +0.138], all recall |
+| [2026-10-22 datasets](docs/results/2026-10-22-standardized-datasets.md) | what changes on the standardized `datasets/`? | 69 images, 871 points; 6 DRAC22 images without a usable seed (was 2); folds moved |
+| [2026-10-23 CV](docs/results/2026-10-23-standardized-cv.md) | the current configuration on the standardized 69 images? (5-fold CV) | **0.5047** IoU (DRAC22 0.4357, TUH 0.6121); not comparable with 68-image figures |
 
 ## History
 
