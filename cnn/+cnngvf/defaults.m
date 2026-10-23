@@ -125,7 +125,7 @@ cfg.Images = strings(0, 1);
 % --- Cross-validation ------------------------------------------------------
 % Folds are pooled across datasets and stratified by lesion area; see
 % cnngvf.cvFolds.
-cfg.CV.k        = 5;   % 68 domain images -> folds of 14/14/14/13/13
+cfg.CV.k        = 5;   % 69 domain images -> folds of 14/14/14/14/13
 cfg.CV.innerVal = 2;   % training images held out for best-checkpoint selection
 
 % Whose fold networks to score with. This arm's own, except for an arm that
@@ -143,7 +143,7 @@ cfg.CV.probCache = "";
 % The per-image record run_cache compares against: the adopted configuration's
 % cross-validated scores. A new adoption adds a new file here; old ones stay.
 cfg.CV.reference = fullfile(fileparts(mainDir), 'docs', 'results', 'reference', ...
-    '2026-09-30-hull-128.csv');
+    '2026-10-23-standardized-69.csv');
 
 % --- Post-processing -------------------------------------------------------
 % P > tau -> seed fallback -> imclose -> imfill -> seedMasks. See

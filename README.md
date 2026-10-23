@@ -7,26 +7,22 @@ empty, seed claiming, and a seed hull that fills between nearby seeds. MATLAB R2
 
 ## Current result
 
-> **Stale since 2026-10-22.** The pipeline now reads the standardized 69-image
-> [`datasets/`](datasets/), and this table was measured on the previous 68-image data with
-> different points. No number exists yet on the new domain: it needs a fresh `run_cv`, and
-> `run_cache` refuses the old cache because the folds moved
-> ([docs/results/2026-10-22-standardized-datasets.md](docs/results/2026-10-22-standardized-datasets.md)).
+Out-of-sample, 5-fold cross-validation, **69 images** (DRAC22 42 + TUH 27) from the
+standardized [`datasets/`](datasets/), every image scored, whole-image scoring, current
+configuration (`cnngvf.defaults()`, seed hull link 128 px, relax floor 0.20):
 
-Out-of-sample, 5-fold cross-validation, **68 images** (DRAC22 41 + TUH 27), whole-image
-scoring, current configuration (`cnngvf.defaults()`):
+| | n | mean IoU | median | F1 | precision | recall |
+|---|---|---|---|---|---|---|
+| **all images** | 69 | **0.5047** | 0.5556 | 0.6328 | 0.6410 | 0.6975 |
+| DRAC22 | 42 | 0.4357 | | 0.5573 | 0.5941 | 0.6070 |
+| TUH | 27 | 0.6121 | | 0.7503 | 0.7139 | 0.8382 |
 
-| seed hull link | mean IoU | median | F1 | precision | recall |
-|---|---|---|---|---|---|
-| cross-fitted per fold | **0.5184** | 0.5375 | 0.6554 | 0.6228 | 0.7771 |
-| 128 px, fixed (chosen on these images) | 0.5207 | 0.5375 | 0.6572 | 0.6268 | 0.7762 |
-| none (previous configuration) | 0.5097 | 0.5299 | 0.6489 | 0.6311 | 0.7579 |
-
-Relax floor 0.20 throughout. The cross-fitted row is the estimate to quote. **The seed hull
-was adopted over its own pre-registered precision guard** (−0.0106 against a limit of −0.01),
-by explicit decision. Source:
-[docs/results/2026-09-30-seed-hull-d.md](docs/results/2026-09-30-seed-hull-d.md); per image:
-[docs/results/reference/2026-09-30-hull-128.csv](docs/results/reference/2026-09-30-hull-128.csv),
+Every setting, including the 128 px hull link, was fixed on the earlier 68-image data, so
+none was tuned on these images. Six DRAC22 images have no usable localization point and
+score about 0; the mean over the other 63 (0.5511) is a labelled secondary figure only. Not
+comparable with the earlier 68-image figures (0.5184 cross-fitted). Source:
+[docs/results/2026-10-23-standardized-cv.md](docs/results/2026-10-23-standardized-cv.md); per
+image: [docs/results/reference/2026-10-23-standardized-69.csv](docs/results/reference/2026-10-23-standardized-69.csv),
 which `run_cache` checks against. This table is the only place the current number is quoted;
 update it here when it changes.
 
