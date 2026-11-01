@@ -73,6 +73,7 @@ Details: [cnn/README.md](cnn/README.md).
 | [2026-10-09 U-Net only](docs/results/2026-10-09-unet-only-baseline.md) | what does the network alone score, `P > 0.5` with no post-processing? (68 images, 5-fold CV) | 0.4201 vs 0.5207 full: post-processing +0.10, CI [+0.065, +0.138], all recall |
 | [2026-10-22 datasets](docs/results/2026-10-22-standardized-datasets.md) | what changes on the standardized `datasets/`? | 69 images, 871 points; 6 DRAC22 images without a usable seed (was 2); folds moved |
 | [2026-10-23 CV](docs/results/2026-10-23-standardized-cv.md) | the current configuration on the standardized 69 images? (5-fold CV) | **0.5047** IoU (DRAC22 0.4357, TUH 0.6121); not comparable with 68-image figures |
+| [2026-11-02 PyTorch inference](docs/results/2026-11-02-colab-parity-inference.md) | does the PyTorch port reproduce MATLAB's `P` from MATLAB's own weights? (69 images, 5-fold CV) | yes: 0.504706 vs 0.504699, max \|dIoU\| 2.2e-4; matches MATLAB CPU to 1.4e-7, the \|ΔP\| ≤ 1e-3 gate fails on MATLAB's GPU noise |
 
 ## History
 
