@@ -16,6 +16,7 @@ The folder was `CNN+GVF/` until 2026-09-25, when the GVF + level-set stages were
   manifest.m            the image domain: name -> image, mask, dataset
   loadPoints.m          localization points across every active dataset
   valSplit.m            derive the validation split across datasets + area range
+  seedLabels.m          the GT component each training seed is labelled with (tolerance)
   loadChannels.m        image -> grayscale (+ optional median filter / vesselness)
   seedPatch.m           crop geometry + Gaussian seed heat-map (shared)
   prepareData.m         seeds -> train/val patch datastores
@@ -37,6 +38,7 @@ run_cv.m                k-fold, every image out-of-sample - the reportable numbe
 run_eval.m              re-score cached masks, no GPU
 run_cache.m             score cached cross-validated P, check against the reference
 run_steps.m             one image, every intermediate written out
+run_export.m            bundle for the PyTorch trainer in ../colab/ (data, folds, weights, fixtures)
 test_cnngvf.m           self-check, 9 checks
 ```
 
@@ -75,7 +77,27 @@ cfg.CV.skipTrain = true;               % reuse the fold networks: inference only
 run_cv(cfg);
 
 run_batch("unclustered")               % a frozen arm, by name
+
+run_export                             % -> result/DRACTUH_unclustered/colab_bundle/, minutes
 ```
+
+### PyTorch trainer (experimental)
+
+`../colab/` ports patch sampling, the U-Net, the loss and `P` inference to PyTorch so long
+training can run on Google Colab. Everything else stays here. Plan and gates:
+[../docs/briefs/colab-parity.md](../docs/briefs/colab-parity.md).
+
+```
+../colab/rnvtorch.py      bundle reader, seedPatch, sampler, UNet (+ MATLAB weight load), loss, inferProbMap, P-cache writer
+../colab/test_parity.py   stage 1 (fixtures) and stage 2 (MATLAB weights -> P), plain asserts
+```
+
+```bash
+python colab/test_parity.py cnn/result/DRACTUH_unclustered/colab_bundle <cache_out>
+```
+
+Then score `<cache_out>` with `run_cache(cnngvf.defaults(), "<cache_out>")`. Needs Python
+3.11, PyTorch with CUDA, NumPy and SciPy.
 
 Every runner takes nothing (the current configuration), a frozen arm's name, or a `cfg`.
 

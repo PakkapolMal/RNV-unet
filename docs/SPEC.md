@@ -384,6 +384,14 @@ only, minutes instead of ~18 h, and how an interrupted run resumes.
 and compares each image's IoU with `cfg.CV.reference`, the adopted configuration's record in
 `results/reference/`. A refactor reproduces it to ~1e-15; anything larger is a result.
 
+**PyTorch trainer (experimental, `colab/`).** `run_export` writes everything training and
+inference read (channels, labels, seeds, folds, the fold networks' weights) to
+`<Output>/colab_bundle`, so the Python side never reads `datasets/`. It writes `P` back in
+the `probCache` format and `run_cache` scores it with the leakage guard unchanged. Its
+parity with the MATLAB trainer is being established under
+[briefs/colab-parity.md](briefs/colab-parity.md); until a record says otherwise, MATLAB is
+the trainer.
+
 **MATLAB R2026a.** Needs Image Processing, Deep Learning, Computer Vision and Parallel
 Computing. R2025b on this machine has Image Processing only and fails immediately with a
 message from `cnngvf.defaults`.
@@ -406,7 +414,8 @@ image → mask rule is per-dataset data (`GtFrom`/`GtTo`, a regexprep on the fil
 identity for DRAC22, `nv (N).png` → `gt (N).tif` for TUH.
 
 **Ground-truth labels are computed, not read.** A seed is labelled with the GT connected
-component it falls in. That is what lets point sets with no per-seed files be trained on.
+component it falls in. That is what lets point sets with no per-seed files be trained on. The rule, tolerance included, is `cnngvf.seedLabels`, shared
+by `prepareData` and `run_export` so the PyTorch trainer labels identically.
 
 **`run_batch` clears its output directories before writing.** Per-seed masks are named by
 coordinates, so a changed CSV would otherwise leave two generations side by side — and
