@@ -50,6 +50,7 @@ Details: [cnn/README.md](cnn/README.md).
 | [`docs/CONTEXT.md`](docs/CONTEXT.md) | glossary: one term, one meaning |
 | [`docs/results/`](docs/results/) | dated measurement records, append-only |
 | [`docs/briefs/`](docs/briefs/) | plans written before the work, kept as written |
+| [`docs/research_analysis/`](docs/research_analysis/) | literature-backed proposals for the next levers, kept as written |
 | [`docs/THEORY.md`](docs/THEORY.md) | literature and snake/GVF background |
 
 ### Results, oldest first
