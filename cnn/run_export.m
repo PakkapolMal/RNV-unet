@@ -16,8 +16,8 @@ function outDir = run_export(cfg, outDir)
 %                        MATLAB run recorded, and that fold network's weights
 %                        and input mean
 %    fixtures.mat        seedPatch crops, dihedral transforms, generalizedDice
-%                        values and one network forward pass, each produced by
-%                        the MATLAB code itself
+%                        values, one network forward pass and one whole-image P
+%                        (CPU), each produced by the MATLAB code itself
 %
 %  .mat v7, which scipy.io.loadmat reads. Strings are saved as cellstr for the
 %  same reason. A few minutes; nothing trains.
@@ -145,15 +145,23 @@ fx.gdT = T;
 fx.gd  = extractdata(generalizedDice(dlarray(Y, 'SSCB'), dlarray(T, 'SSCB')));
 fx.gdLoss = 1 - mean(fx.gd, 'all');
 
-% One forward pass of the fold-1 network on CPU, on a real patch.
+% The fold-1 network on CPU: one patch, and the whole P of the fold-1 test image
+% with the fewest seeds. CPU, because MATLAB's GPU P is a few 1e-4 from its own
+% CPU result (docs/results/2026-11-02-colab-parity-inference.md).
 s   = load(fullfile(modelDir, sprintf('%s_fold1.mat', cfg.Arm)), 'net');
-img = folds{1}(find(ismember(folds{1}, names), 1));
+cnt = arrayfun(@(n) nnz(names == n), folds{1});
+cnt(cnt == 0) = Inf;
+[~, j] = min(cnt);
+img = folds{1}(j);
 row = find(M.Name == img, 1);
 [~, chans] = cnngvf.loadChannels(M.ImgPath(row), cfg);
-sd  = seeds(find(names == img, 1), :);
+sd  = seeds(names == img, :);
 fx.fwdImage = char(img);
-fx.fwdX = cnngvf.seedPatch(chans, sd, sd, cfg);
+fx.fwdX = cnngvf.seedPatch(chans, sd(1, :), sd(1, :), cfg);
 fx.fwdY = gather(predict(s.net, fx.fwdX));
+cpu = cfg;
+cpu.UseGpu = false;
+fx.fwdP = cnngvf.inferProbMap(chans, sd, s.net, cpu);
 
 save(fullfile(outDir, 'fixtures.mat'), '-struct', 'fx', '-v7');
 fprintf('run_export | done\n');

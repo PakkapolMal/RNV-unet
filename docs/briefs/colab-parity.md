@@ -10,6 +10,12 @@ status: approved 2026-11-02
 
 # PyTorch Trainer Parity on Colab
 
+> **Stage 2 gate, 2026-11-02.** max |ΔP| ≤ 1e-3 against the cached MATLAB `P` failed
+> (2.4e-3). The cause is MATLAB's GPU arithmetic, not the port: PyTorch matches MATLAB's
+> CPU `P` to 1.4e-7, and the `run_cache` gate passed (max |dIoU| 2.2e-4). The user accepted
+> the failure and stage 3 proceeds. `test_parity.py` now checks `P` against MATLAB's CPU
+> result. Record: [../results/2026-11-02-colab-parity-inference.md](../results/2026-11-02-colab-parity-inference.md).
+
 ## Why
 
 Every lever left is on the training side (R1–R3, R5, R6, R8 of the 2026-10-29 levers

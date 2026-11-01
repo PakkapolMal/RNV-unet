@@ -3,8 +3,9 @@
     python colab/test_parity.py <bundle> [<cache_out>]
 
 Stage 1 checks the port against fixtures run_export wrote from the MATLAB code.
-Stage 2 runs every fold's MATLAB weights through the PyTorch network, compares P
-with the cached MATLAB P, and writes it to <cache_out> for run_cache to score.
+Stage 2 runs every fold's MATLAB weights through the PyTorch network, checks one
+patch and one whole-image P against MATLAB's CPU, reports the distance to the
+cached (GPU) MATLAB P, and writes P to <cache_out> for run_cache to score.
 """
 import sys
 from pathlib import Path
@@ -65,8 +66,13 @@ def stage2(cfg, images, folds, fx, cache_out, device):
             with torch.no_grad():
                 Y = model(X)[0].permute(1, 2, 0).cpu().numpy()
             d = np.abs(Y - fx["fwdY"]).max()
-            assert d <= 1e-4, f"forward pass differs from MATLAB by {d:.3g}"
+            assert d <= 1e-5, f"forward pass differs from MATLAB by {d:.3g}"
             print(f"  forward pass   ok (max |dY| {d:.2g})")
+            im = images[str(fx["fwdImage"][0])]
+            P = rt.infer_prob_map(im["chans"], im["seeds"], model, p, sigma, batch, device)
+            d = np.abs(P - fx["fwdP"]).max()
+            assert d <= 1e-5, f"P differs from MATLAB's CPU P by {d:.3g}"
+            print(f"  whole-image P  ok (max |dP| {d:.2g} vs MATLAB CPU, {fx['fwdImage'][0]})")
         for name in fold["test"]:
             im = images[name]
             P = rt.infer_prob_map(im["chans"], im["seeds"], model, p, sigma, batch, device)
@@ -77,11 +83,42 @@ def stage2(cfg, images, folds, fx, cache_out, device):
                 rt.write_prob_cache(cache_out, name, P, f, arm=str(cfg["arm"]),
                                     netFile=f"MATLAB fold {f} weights in PyTorch")
         print(f"  fold {f}         {len(fold['test'])} images, running max |dP| {worst:.2g}")
-    assert worst <= 1e-3, f"P differs from the MATLAB cache by {worst:.3g}"
-    print(f"  inference      ok (max |dP| {worst:.2g} over every image)")
+    # Not asserted: the cache came from MATLAB's GPU, a few 1e-4 from its own CPU
+    # (docs/results/2026-11-02-colab-parity-inference.md). run_cache judges it.
+    print(f"  vs GPU cache   max |dP| {worst:.2g}; score <cache_out> with run_cache")
+
+
+def stage3(root, run_root, workers):
+    """Fold 1: train 1 epoch, stop, resume to epoch 2, write P."""
+    import csv
+    _, _, folds = rt.load_bundle(root)
+    assert rt.train_fold(root, run_root, 1, 0, epochs=2, stop_after=1, workers=workers) is None
+    assert rt.train_fold(root, run_root, 1, 0, epochs=2, workers=workers) is not None
+    log = list(csv.DictReader(open(Path(run_root) / "fold1" / "log.csv")))
+    assert [int(r["epoch"]) for r in log] == [1, 2], f"epochs logged {[r['epoch'] for r in log]}"
+    st = torch.load(Path(run_root) / "fold1" / "net.pt", weights_only=False)
+    want = min(log, key=lambda r: float(r["val_loss"]))
+    assert st["epoch"] == int(want["epoch"]), "net.pt is not the best-validation epoch"
+    mean = st["model"]["mean"]
+    d = np.abs(mean.numpy() - folds[0]["mean"]).max()
+    assert d <= 0.005, f"zero-centre mean {mean.numpy()} vs MATLAB {folds[0]['mean']}"
+    assert float(log[1]["train_loss"]) < float(log[0]["train_loss"]), "training loss did not fall"
+    n = len(list((Path(run_root) / "probcache").glob("*.mat")))
+    assert n == len(folds[0]["test"]), f"{n} P files for {len(folds[0]['test'])} held-out images"
+    secs = np.mean([float(r["seconds"]) for r in log])
+    print(f"  smoke          ok (resume, best epoch {st['epoch']}, mean within {d:.2g}, loss "
+          f"{float(log[0]['train_loss']):.4f} -> {float(log[1]['train_loss']):.4f})")
+    print(f"  {secs:.0f} s/epoch on {torch.cuda.get_device_name() if torch.cuda.is_available() else 'cpu'}: "
+          f"one 5-fold CV of 20 epochs ~ {secs * 20 * 5 / 3600:.1f} h")
 
 
 if __name__ == "__main__":
+    if sys.argv[1] == "stage3":
+        # python colab/test_parity.py stage3 <bundle> <scratch_run_root> [workers]
+        print("stage 3: one-fold smoke")
+        stage3(sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 0)
+        print("All checks passed.")
+        sys.exit()
     root = sys.argv[1]
     cache_out = sys.argv[2] if len(sys.argv) > 2 else None
     device = "cuda" if torch.cuda.is_available() else "cpu"
