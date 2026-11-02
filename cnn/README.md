@@ -97,7 +97,7 @@ so long training can run on Google Colab. Everything else stays here. Plan and g
 ```bash
 python colab/test_parity.py cnn/result/DRACTUH_unclustered/colab_bundle <cache_out>
 python colab/test_parity.py stage3 cnn/result/DRACTUH_unclustered/colab_bundle <scratch_run_root>
-python colab/rnvtorch.py train cnn/result/DRACTUH_unclustered/colab_bundle <run_root> --fold 1 --seed 0
+python colab/rnvtorch.py train cnn/result/DRACTUH_unclustered/colab_bundle <run_root> --fold 1 --rng 0
 ```
 
 `train` checkpoints every epoch to `<run_root>/fold<k>/` and resumes there when rerun. When it

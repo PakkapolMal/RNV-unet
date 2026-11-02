@@ -1,6 +1,6 @@
 """PyTorch port of the seed-conditioned U-Net: patches, network, loss, training, inference.
 
-    python rnvtorch.py train <bundle> <run_root> --fold F --seed S [--epochs N]
+    python rnvtorch.py train <bundle> <run_root> --fold F --rng R [--epochs N]
                              [--stop-after N] [--workers N]
 
 trains one fold, checkpointing every epoch to <run_root>/fold<F>/ and resuming
@@ -312,7 +312,7 @@ def channel_mean(loader):
     return (total / n).float()
 
 
-def train_fold(root, run_root, fold_no, seed, epochs=None, stop_after=None, workers=0, device=None):
+def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, workers=0, device=None):
     """Train one fold as run_cv does, resuming from <run_root>/fold<k>/ckpt.pt.
 
     Adam at cfg.learnRate with L2 1e-4 on weights only (MATLAB's default, added
@@ -321,6 +321,11 @@ def train_fold(root, run_root, fold_no, seed, epochs=None, stop_after=None, work
     best-validation output. The epoch's patch list is drawn once, as
     prepareData does. Returns the trained model, or None when stop_after
     stopped it early.
+
+    rng seeds every random draw: the patch list, the initial weights, jitter,
+    flips, shuffle order and dropout. It is not a localization seed. The GPU
+    arithmetic is not deterministic, so the same rng does not repeat a run
+    exactly (docs/results/2026-11-02-colab-parity-smoke-local.md).
     """
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     exact_fp32()
@@ -345,14 +350,14 @@ def train_fold(root, run_root, fold_no, seed, epochs=None, stop_after=None, work
         st = torch.load(ckpt, map_location="cpu", weights_only=False)
         model.load_state_dict(st["model"])
         opt.load_state_dict(st["opt"])
-        torch.set_rng_state(st["rng"])
+        torch.set_rng_state(st["torch_rng"])
         if device == "cuda" and st["cuda_rng"] is not None:
             torch.cuda.set_rng_state(st["cuda_rng"])
         rows, done, best = st["rows"], st["epoch"], st["best"]
         print(f"fold {fold_no}: resuming after epoch {done} (best epoch {best['epoch']})")
     else:
-        torch.manual_seed(seed)
-        rows = epoch_rows(cfg, train, np.random.default_rng(seed))
+        torch.manual_seed(rng)
+        rows = epoch_rows(cfg, train, np.random.default_rng(rng))
         glorot_(model)
         once = torch.utils.data.DataLoader(PatchSet(cfg, images, rows, True), batch_size=16, num_workers=workers)
         with torch.no_grad():
@@ -394,9 +399,9 @@ def train_fold(root, run_root, fold_no, seed, epochs=None, stop_after=None, work
             wr.writerow([epoch, tl / nb, vl, round(secs, 1), best["epoch"]])
         print(f"fold {fold_no} epoch {epoch}/{epochs}: train {tl / nb:.4f} val {vl:.4f} "
               f"(best {best['epoch']}) {secs:.0f} s", flush=True)
-        st = dict(model=model.state_dict(), opt=opt.state_dict(), rng=torch.get_rng_state(),
+        st = dict(model=model.state_dict(), opt=opt.state_dict(), torch_rng=torch.get_rng_state(),
                   cuda_rng=torch.cuda.get_rng_state() if device == "cuda" else None,
-                  rows=rows, epoch=epoch, best=best, seed=seed)
+                  rows=rows, epoch=epoch, best=best, rng=rng)
         torch.save(st, out / "ckpt.tmp")
         os.replace(out / "ckpt.tmp", ckpt)    # a disconnect mid-write keeps the last good one
         if stop_after and epoch - done >= stop_after and epoch < epochs:
@@ -404,13 +409,13 @@ def train_fold(root, run_root, fold_no, seed, epochs=None, stop_after=None, work
             return None
 
     model.load_state_dict(best["state"])
-    torch.save(dict(model=best["state"], epoch=best["epoch"], val_loss=best["loss"], seed=seed), out / "net.pt")
+    torch.save(dict(model=best["state"], epoch=best["epoch"], val_loss=best["loss"], rng=rng), out / "net.pt")
     p, sigma, batch = int(cfg["patch"]), float(cfg["sigmaSeed"]), int(cfg["inferBatch"])
     for name in fold["test"]:
         im = images[name]
         P = infer_prob_map(im["chans"], im["seeds"], model, p, sigma, batch, device)
         write_prob_cache(Path(run_root) / "probcache", name, P, fold_no, arm=str(cfg["arm"]),
-                         netFile=f"PyTorch fold {fold_no} seed {seed} epoch {best['epoch']}")
+                         netFile=f"PyTorch fold {fold_no} rng {rng} epoch {best['epoch']}")
     print(f"fold {fold_no}: done, best epoch {best['epoch']}, P written for {len(fold['test'])} held-out images")
     return model
 
@@ -421,9 +426,9 @@ if __name__ == "__main__":
     ap.add_argument("bundle")
     ap.add_argument("run_root")
     ap.add_argument("--fold", type=int, required=True)
-    ap.add_argument("--seed", type=int, required=True)
+    ap.add_argument("--rng", type=int, required=True)
     ap.add_argument("--epochs", type=int)
     ap.add_argument("--stop-after", type=int)
     ap.add_argument("--workers", type=int, default=0)
     a = ap.parse_args()
-    train_fold(a.bundle, a.run_root, a.fold, a.seed, a.epochs, a.stop_after, a.workers)
+    train_fold(a.bundle, a.run_root, a.fold, a.rng, a.epochs, a.stop_after, a.workers)
