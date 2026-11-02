@@ -83,21 +83,27 @@ run_export                             % -> result/DRACTUH_unclustered/colab_bun
 
 ### PyTorch trainer (experimental)
 
-`../colab/` ports patch sampling, the U-Net, the loss and `P` inference to PyTorch so long
-training can run on Google Colab. Everything else stays here. Plan and gates:
+`../colab/` ports patch sampling, the U-Net, the loss, training and `P` inference to PyTorch
+so long training can run on Google Colab. Everything else stays here. Plan and gates:
 [../docs/briefs/colab-parity.md](../docs/briefs/colab-parity.md).
 
 ```
-../colab/rnvtorch.py      bundle reader, seedPatch, sampler, UNet (+ MATLAB weight load), loss, inferProbMap, P-cache writer
-../colab/test_parity.py   stage 1 (fixtures) and stage 2 (MATLAB weights -> P), plain asserts
+../colab/rnvtorch.py      bundle reader, seedPatch, sampler, UNet (+ MATLAB weight load), loss,
+                          train_fold (checkpoint + resume), inferProbMap, P-cache writer
+../colab/test_parity.py   stage 1 (fixtures), stage 2 (MATLAB weights -> P), stage 3 (one-fold smoke)
+../colab/train.ipynb      Colab driver: mount Drive, copy the bundle, smoke, train one fold
 ```
 
 ```bash
 python colab/test_parity.py cnn/result/DRACTUH_unclustered/colab_bundle <cache_out>
+python colab/test_parity.py stage3 cnn/result/DRACTUH_unclustered/colab_bundle <scratch_run_root>
+python colab/rnvtorch.py train cnn/result/DRACTUH_unclustered/colab_bundle <run_root> --fold 1 --seed 0
 ```
 
-Then score `<cache_out>` with `run_cache(cnngvf.defaults(), "<cache_out>")`. Needs Python
-3.11, PyTorch with CUDA, NumPy and SciPy.
+`train` checkpoints every epoch to `<run_root>/fold<k>/` and resumes there when rerun. When it
+finishes, it writes the fold's held-out `P` to `<run_root>/probcache/`. Score a cache with
+`run_cache(cnngvf.defaults(), "<dir>")`. Needs Python 3.11, PyTorch with CUDA, NumPy and
+SciPy. On Windows keep `--workers 0`, because worker processes would each copy the bundle.
 
 Every runner takes nothing (the current configuration), a frozen arm's name, or a `cfg`.
 
