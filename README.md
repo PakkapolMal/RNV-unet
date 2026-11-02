@@ -75,6 +75,7 @@ Details: [cnn/README.md](cnn/README.md).
 | [2026-10-23 CV](docs/results/2026-10-23-standardized-cv.md) | the current configuration on the standardized 69 images? (5-fold CV) | **0.5047** IoU (DRAC22 0.4357, TUH 0.6121); not comparable with 68-image figures |
 | [2026-11-02 PyTorch inference](docs/results/2026-11-02-colab-parity-inference.md) | does the PyTorch port reproduce MATLAB's `P` from MATLAB's own weights? (69 images, 5-fold CV) | yes: 0.504706 vs 0.504699, max \|dIoU\| 2.2e-4; matches MATLAB CPU to 1.4e-7, the \|ΔP\| ≤ 1e-3 gate fails on MATLAB's GPU noise |
 | [2026-11-02 PyTorch smoke](docs/results/2026-11-02-colab-parity-smoke-local.md) | does PyTorch training run, resume and match MATLAB's setup? (fold 1, 2 epochs, local GPU) | yes: counts equal, mean within 0.0038, loss falls, resume works; 565 s/epoch, ~15.7 h per CV locally |
+| [2026-11-02 Colab smoke](docs/results/2026-11-02-colab-parity-smoke-colab.md) | do stages 1–3 pass on Colab, and what does stage 4 cost? (fold 1, 2 epochs, L4) | all pass; 290 s/epoch, ~8.1 h per CV; two seeds fit 120 CU at up to ~6.5 CU/h |
 
 ## History
 
