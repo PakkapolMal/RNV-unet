@@ -347,7 +347,7 @@ archives any existing network with a timestamp before saving.
 
 | parameter | value | why |
 |---|---|---|
-| `Post.tau` | **0.5** | pre-registered decision boundary; never tuned on scored images |
+| `Post.tau` | **0.5** | pre-registered decision boundary; cross-fitting 0.40–0.70 loses 0.004 IoU ([results](results/2026-11-05-tau-crossfit.md)) |
 | `Post.fallbackMode` | **`"relax"`** | shape from `P` for seeds the threshold missed; `"disk"` on the frozen arms |
 | `Post.relaxFloor` | **0.20** | fixed after the 2026-09-16 sweep; re-tuning it jointly with the window loses 0.0098 cross-fitted ([results](results/2026-09-30-relax-grid.md)) |
 | `Post.relaxWindow` | 128 px | stops a low floor flooding a broad plateau; the best of 64 / 128 / 256 / 512 at every floor 0.10–0.25 ([results](results/2026-09-30-relax-grid.md)) |
@@ -547,8 +547,11 @@ contending for one laptop GPU is slower than serial.
 - **Tiny lesions are threshold-unstable.** A 0.8% shift in `P` can halve IoU on a ~1 000 px
   lesion by joining a neighbouring blob; expect large single-image swings in the smallest
   quintile from any change to `P`.
-- **Under relax, `tau` 0.55–0.60 scores higher on the surface** (up to 0.519) than the
-  pre-registered 0.5. Untested as a result; it would need cross-fitting.
+- **`tau` 0.5 is measured, not just pre-registered.** Cross-fitted over 0.40–0.70 it loses
+  0.0039 IoU (CI [−0.0081, −0.0004], 69 images, 5-fold CV), and it loses on both PyTorch
+  baseline caches too. The curve is flat over 0.45–0.60 and peaks at 0.5. The precision gap
+  is not a threshold problem ([results/2026-11-05-tau-crossfit.md](results/2026-11-05-tau-crossfit.md)).
+  Re-run it if a loss or training change is adopted.
 - **The TUH acquisition overlay is still in the images.** Straight-line false positives are the
   symptom to watch for.
 - **`299.png` and `445.png` have broken detector points** (445's is a copy of 443's) and
