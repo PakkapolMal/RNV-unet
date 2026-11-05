@@ -46,6 +46,7 @@ Details: [cnn/README.md](cnn/README.md).
 |---|---|
 | [`CLAUDE.md`](CLAUDE.md) | rules for coding agents: which docs to update, what to verify, what to ask first |
 | [`cnn/`](cnn/) | the pipeline: package `+cnngvf`, runners, self-check |
+| [`colab/`](colab/) | the PyTorch trainer new arms train with, on Google Colab |
 | [`docs/SPEC.md`](docs/SPEC.md) | how the current pipeline works and why — current state only |
 | [`docs/CONTEXT.md`](docs/CONTEXT.md) | glossary: one term, one meaning |
 | [`docs/results/`](docs/results/) | dated measurement records, append-only |

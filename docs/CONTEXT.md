@@ -57,7 +57,7 @@ _Avoid_: delineation, contouring
 **Seed**:
 A localization point, `[cx cy]` = (column, row), that this context segments
 *from*. The umbrella term; when the distinction matters, say Detection or
-Cluster Centre.
+Cluster Centre. Never the random-number seed of a training; that is the RNG.
 _Avoid_: point, marker, landmark, coordinate
 
 **Detection**:
@@ -184,6 +184,17 @@ is the student who picks it from past exams, and only that score predicts the ne
 The value that ships is still the one chosen on all the images; only its score is
 optimistic.
 _Avoid_: adaptive, per-fold tuning (it is a measurement, not a better tuner)
+
+**RNG**:
+The number that fixes a training's random draws: which seeds fill each image's patch
+budget, the starting weights, jitter, flips, shuffle order and dropout. Two trainings of
+one arm that differ only in RNG still differ in score.
+_Avoid_: seed, random seed (Seed means a localization point)
+
+**Noise floor**:
+How far two trainings of the same arm, differing only in RNG, land apart. A difference
+between arms smaller than this is not evidence either way.
+_Avoid_: variance, jitter, error bar
 
 ### Retired
 

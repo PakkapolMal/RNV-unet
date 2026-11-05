@@ -5,7 +5,7 @@ kind: implementation-brief
 audience: Claude Code
 target: RNV-Claude/colab (new, Python + PyTorch) and RNV-Claude/cnn (one export runner)
 depends-on: results/2026-10-23-standardized-cv.md, research_analysis/rnv-score-levers-2026-10-29.md
-status: approved 2026-11-02
+status: executed 2026-11-05
 ---
 
 # PyTorch Trainer Parity on Colab
@@ -15,6 +15,11 @@ status: approved 2026-11-02
 > CPU `P` to 1.4e-7, and the `run_cache` gate passed (max |dIoU| 2.2e-4). The user accepted
 > the failure and stage 3 proceeds. `test_parity.py` now checks `P` against MATLAB's CPU
 > result. Record: [../results/2026-11-02-colab-parity-inference.md](../results/2026-11-02-colab-parity-inference.md).
+>
+> **Stage 4 gate, 2026-11-05.** The ±0.02 CI gate failed for RNG 0 (CI reaches −0.024, after
+> one stalled fold) and passed for RNG 1. Both means are within 0.005 IoU of MATLAB. The
+> user accepted parity: the PyTorch trainer is now the trainer, and each later arm trains
+> once. Record: [../results/2026-11-05-colab-parity-cv.md](../results/2026-11-05-colab-parity-cv.md).
 
 ## Why
 

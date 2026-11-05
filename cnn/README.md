@@ -81,10 +81,10 @@ run_batch("unclustered")               % a frozen arm, by name
 run_export                             % -> result/DRACTUH_unclustered/colab_bundle/, minutes
 ```
 
-### PyTorch trainer (experimental)
+### PyTorch trainer
 
 `../colab/` ports patch sampling, the U-Net, the loss, training and `P` inference to PyTorch
-so long training can run on Google Colab. Everything else stays here. Plan and gates:
+so long training can run on Google Colab. New arms train there; everything else stays here. Plan and gates:
 [../docs/briefs/colab-parity.md](../docs/briefs/colab-parity.md).
 
 ```

@@ -384,13 +384,17 @@ only, minutes instead of ~18 h, and how an interrupted run resumes.
 and compares each image's IoU with `cfg.CV.reference`, the adopted configuration's record in
 `results/reference/`. A refactor reproduces it to ~1e-15; anything larger is a result.
 
-**PyTorch trainer (experimental, `colab/`).** `run_export` writes everything training and
-inference read (channels, labels, seeds, folds, the fold networks' weights) to
-`<Output>/colab_bundle`, so the Python side never reads `datasets/`. It writes `P` back in
-the `probCache` format and `run_cache` scores it with the leakage guard unchanged. Its
-parity with the MATLAB trainer is being established under
-[briefs/colab-parity.md](briefs/colab-parity.md); until a record says otherwise, MATLAB is
-the trainer.
+**Training is PyTorch, on Colab (`colab/`).** New arms train there; the MATLAB trainer
+(`trainNet`, `run_train`, `run_cv` training) stays because it produced the adopted reference
+networks, which `run_batch` and `run_steps` load. `run_export` writes everything training and
+inference read (channels, labels, seeds, folds) to `<Output>/colab_bundle`, so the Python side
+never reads `datasets/`. A trained fold writes its held-out `P` in the `probCache` format, and
+`run_cache` scores it with the leakage guard unchanged. Parity with MATLAB: within 0.005 IoU
+on the 69 images, 5-fold CV ([results/2026-11-05-colab-parity-cv.md](results/2026-11-05-colab-parity-cv.md)).
+
+The two parity runs, `cnn/result/DRACTUH_unclustered/colab_runs/parity_rng0` and
+`parity_rng1`, are the baseline every trained arm is compared with. Their `P` caches are not
+in git; do not delete them.
 
 **MATLAB R2026a.** Needs Image Processing, Deep Learning, Computer Vision and Parallel
 Computing. R2025b on this machine has Image Processing only and fails immediately with a
@@ -504,6 +508,11 @@ contending for one laptop GPU is slower than serial.
    chosen on all images. The fixed value's score on those images is optimistic, because it
    won there ([CONTEXT.md](CONTEXT.md), "Cross-fitted"; worked example in
    [results/2026-09-30-seed-hull-d.md](results/2026-09-30-seed-hull-d.md)).
+7. **A trained arm trains once (`--rng 0`) and is judged against the training noise floor.**
+   Compare it paired with both baseline runs. Two retrains of one configuration differ by a
+   95 % CI half-width of about 0.015 IoU (69 images, 5-fold CV), so a smaller mean difference
+   is not a result in either direction ([CONTEXT.md](CONTEXT.md), "Noise floor";
+   [results/2026-11-05-colab-parity-cv.md](results/2026-11-05-colab-parity-cv.md)).
 
 ## Known limits and next steps
 
@@ -525,6 +534,10 @@ contending for one laptop GPU is slower than serial.
   over-segmentation.
 - **The large-lesion gap is model-side, not patch coverage.** 98% of the largest-quintile ground
   truth lies inside a 512 px patch, and 76% of its missed pixels have `P < 0.20`.
+- **A fold can stall.** One of ten PyTorch fold trainings plateaued at training loss ~0.39
+  where the rest reached 0.28–0.31, and scored 0.067 below MATLAB on that fold
+  ([results/2026-11-05-colab-parity-cv.md](results/2026-11-05-colab-parity-cv.md)). Check
+  every arm's `log.csv` before reading its score.
 - **30 epochs may not be enough.** The `perSeed = 4` validation curve was still descending at
   epoch 29. Training longer is the cheapest untested lever.
 - **Is `perSeed = 8` better still?** 4 restored the other arms' setting; it is not a measured
