@@ -84,8 +84,7 @@ imgIdx = arrayfun(@(n) find(images == n, 1), names);
 % exactly - but it also works for point sets those files are not keyed to,
 % which is what lets the unclustered points be used for training.
 %
-% A seed on background cannot be labelled (training it against pure background
-% would teach the network to ignore its own heat-map), so it is dropped.
+% Which lesion, and which seeds are dropped, is cnngvf.seedLabels's rule.
 segMasks = cell(numel(names), 1);
 onBackground = false(numel(names), 1);
 
@@ -94,36 +93,11 @@ recovered = 0;
 
 for i = 1:numel(images)
     sel = find(names == images(i))';
-    filled = cnngvf.loadMask(M.GtPath(i));
-    CC = bwconncomp(filled);
-    L  = labelmatrix(CC);
-    [h, w] = size(filled);
-
-    % Distance to the nearest lesion, and the index of the nearest lesion pixel.
-    % True boundary distance, not centroid distance: a seed just outside a large
-    % concave lesion can be nearer another blob's centroid than its own.
-    [dist, nearest] = bwdist(filled);
-
-    for k = sel
-        row = min(max(round(seeds(k, 2)), 1), h);
-        col = min(max(round(seeds(k, 1)), 1), w);
-        id  = L(row, col);
-
-        if id == 0
-            % Outside every lesion. Near-misses are labelled with the lesion
-            % they just missed; genuine detector errors are dropped.
-            if dist(row, col) <= tol
-                id = L(nearest(row, col));
-                recovered = recovered + 1;
-            else
-                onBackground(k) = true;
-                continue;
-            end
-        end
-
-        m = false(h, w);
-        m(CC.PixelIdxList{id}) = true;
-        segMasks{k} = m;
+    [comp, L, r] = cnngvf.seedLabels(cnngvf.loadMask(M.GtPath(i)), seeds(sel, :), tol);
+    recovered = recovered + r;
+    onBackground(sel(comp == 0)) = true;
+    for j = find(comp > 0)'
+        segMasks{sel(j)} = L == comp(j);
     end
 end
 

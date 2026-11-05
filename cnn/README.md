@@ -16,6 +16,7 @@ The folder was `CNN+GVF/` until 2026-09-25, when the GVF + level-set stages were
   manifest.m            the image domain: name -> image, mask, dataset
   loadPoints.m          localization points across every active dataset
   valSplit.m            derive the validation split across datasets + area range
+  seedLabels.m          the GT component each training seed is labelled with (tolerance)
   loadChannels.m        image -> grayscale (+ optional median filter / vesselness)
   seedPatch.m           crop geometry + Gaussian seed heat-map (shared)
   prepareData.m         seeds -> train/val patch datastores
@@ -37,6 +38,7 @@ run_cv.m                k-fold, every image out-of-sample - the reportable numbe
 run_eval.m              re-score cached masks, no GPU
 run_cache.m             score cached cross-validated P, check against the reference
 run_steps.m             one image, every intermediate written out
+run_export.m            bundle for the PyTorch trainer in ../colab/ (data, folds, weights, fixtures)
 test_cnngvf.m           self-check, 9 checks
 ```
 
@@ -75,7 +77,33 @@ cfg.CV.skipTrain = true;               % reuse the fold networks: inference only
 run_cv(cfg);
 
 run_batch("unclustered")               % a frozen arm, by name
+
+run_export                             % -> result/DRACTUH_unclustered/colab_bundle/, minutes
 ```
+
+### PyTorch trainer
+
+`../colab/` ports patch sampling, the U-Net, the loss, training and `P` inference to PyTorch
+so long training can run on Google Colab. New arms train there; everything else stays here. Plan and gates:
+[../docs/briefs/colab-parity.md](../docs/briefs/colab-parity.md).
+
+```
+../colab/rnvtorch.py      bundle reader, seedPatch, sampler, UNet (+ MATLAB weight load), loss,
+                          train_fold (checkpoint + resume), inferProbMap, P-cache writer
+../colab/test_parity.py   stage 1 (fixtures), stage 2 (MATLAB weights -> P), stage 3 (one-fold smoke)
+../colab/train.ipynb      Colab driver: mount Drive, copy the bundle, smoke, train one fold
+```
+
+```bash
+python colab/test_parity.py cnn/result/DRACTUH_unclustered/colab_bundle <cache_out>
+python colab/test_parity.py stage3 cnn/result/DRACTUH_unclustered/colab_bundle <scratch_run_root>
+python colab/rnvtorch.py train cnn/result/DRACTUH_unclustered/colab_bundle <run_root> --fold 1 --rng 0
+```
+
+`train` checkpoints every epoch to `<run_root>/fold<k>/` and resumes there when rerun. When it
+finishes, it writes the fold's held-out `P` to `<run_root>/probcache/`. Score a cache with
+`run_cache(cnngvf.defaults(), "<dir>")`. Needs Python 3.11, PyTorch with CUDA, NumPy and
+SciPy. On Windows keep `--workers 0`, because worker processes would each copy the bundle.
 
 Every runner takes nothing (the current configuration), a frozen arm's name, or a `cfg`.
 

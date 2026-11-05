@@ -46,6 +46,7 @@ Details: [cnn/README.md](cnn/README.md).
 |---|---|
 | [`CLAUDE.md`](CLAUDE.md) | rules for coding agents: which docs to update, what to verify, what to ask first |
 | [`cnn/`](cnn/) | the pipeline: package `+cnngvf`, runners, self-check |
+| [`colab/`](colab/) | the PyTorch trainer new arms train with, on Google Colab |
 | [`docs/SPEC.md`](docs/SPEC.md) | how the current pipeline works and why — current state only |
 | [`docs/CONTEXT.md`](docs/CONTEXT.md) | glossary: one term, one meaning |
 | [`docs/results/`](docs/results/) | dated measurement records, append-only |
@@ -73,6 +74,10 @@ Details: [cnn/README.md](cnn/README.md).
 | [2026-10-09 U-Net only](docs/results/2026-10-09-unet-only-baseline.md) | what does the network alone score, `P > 0.5` with no post-processing? (68 images, 5-fold CV) | 0.4201 vs 0.5207 full: post-processing +0.10, CI [+0.065, +0.138], all recall |
 | [2026-10-22 datasets](docs/results/2026-10-22-standardized-datasets.md) | what changes on the standardized `datasets/`? | 69 images, 871 points; 6 DRAC22 images without a usable seed (was 2); folds moved |
 | [2026-10-23 CV](docs/results/2026-10-23-standardized-cv.md) | the current configuration on the standardized 69 images? (5-fold CV) | **0.5047** IoU (DRAC22 0.4357, TUH 0.6121); not comparable with 68-image figures |
+| [2026-11-02 PyTorch inference](docs/results/2026-11-02-colab-parity-inference.md) | does the PyTorch port reproduce MATLAB's `P` from MATLAB's own weights? (69 images, 5-fold CV) | yes: 0.504706 vs 0.504699, max \|dIoU\| 2.2e-4; matches MATLAB CPU to 1.4e-7, the \|ΔP\| ≤ 1e-3 gate fails on MATLAB's GPU noise |
+| [2026-11-02 PyTorch smoke](docs/results/2026-11-02-colab-parity-smoke-local.md) | does PyTorch training run, resume and match MATLAB's setup? (fold 1, 2 epochs, local GPU) | yes: counts equal, mean within 0.0038, loss falls, resume works; 565 s/epoch, ~15.7 h per CV locally |
+| [2026-11-02 Colab smoke](docs/results/2026-11-02-colab-parity-smoke-colab.md) | do stages 1–3 pass on Colab, and what does stage 4 cost? (fold 1, 2 epochs, L4) | all pass; 290 s/epoch, ~8.1 h per CV; two seeds fit 120 CU at up to ~6.5 CU/h |
+| [2026-11-05 parity CV](docs/results/2026-11-05-colab-parity-cv.md) | does a PyTorch-trained CV match MATLAB? (69 images, 5-fold CV, 2 RNGs) | means within 0.005 (0.5002, 0.5010 vs 0.5047), but RNG 0's CI reaches −0.024, failing the ±0.02 gate; noise floor per-image SD 0.062, CI ±0.015 |
 
 ## History
 

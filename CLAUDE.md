@@ -1,6 +1,7 @@
 # CLAUDE.md
 
-RNV lesion segmentation from localization points, in MATLAB. Read [README.md](README.md)
+RNV lesion segmentation from localization points, in MATLAB; the U-Net trains in PyTorch on
+Colab (`colab/`). Read [README.md](README.md)
 for what the repo is and the current number, [docs/SPEC.md](docs/SPEC.md) for how the
 pipeline works, [docs/CONTEXT.md](docs/CONTEXT.md) for the vocabulary. This file holds
 rules and pointers only — never a number or a parameter value; those live in one place
@@ -61,7 +62,11 @@ Why each exists: SPEC.md, "Reporting rules" and "Invariants that fail silently".
 2. Work on a branch `exp/<name>`. Refactors, fixes and doc-only changes go on `master`.
 3. Post-P changes: score them off the cache with `run_cache` (seconds, out-of-sample), not
    by retraining.
-4. Record the result, then adopt (merge; update SPEC, README, reference) or reject
+4. Changes that need training: train in `colab/`, once per arm, and judge the result against
+   the noise floor and both baseline runs (SPEC.md, Reporting rule 7). The user runs Colab;
+   prepare the code and the notebook cell, then score the downloaded `P` with `run_cache`.
+   Read every fold's `log.csv` first: a stalled fold is a training failure, not a result.
+5. Record the result, then adopt (merge; update SPEC, README, reference) or reject
    (tag `archive/<name>`, delete the branch after asking).
 
 Commit subjects lead with the finding ("The seed fallback is worth +0.041 IoU"); the body
