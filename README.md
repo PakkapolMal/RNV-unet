@@ -78,6 +78,7 @@ Details: [cnn/README.md](cnn/README.md).
 | [2026-11-02 PyTorch smoke](docs/results/2026-11-02-colab-parity-smoke-local.md) | does PyTorch training run, resume and match MATLAB's setup? (fold 1, 2 epochs, local GPU) | yes: counts equal, mean within 0.0038, loss falls, resume works; 565 s/epoch, ~15.7 h per CV locally |
 | [2026-11-02 Colab smoke](docs/results/2026-11-02-colab-parity-smoke-colab.md) | do stages 1–3 pass on Colab, and what does stage 4 cost? (fold 1, 2 epochs, L4) | all pass; 290 s/epoch, ~8.1 h per CV; two seeds fit 120 CU at up to ~6.5 CU/h |
 | [2026-11-05 parity CV](docs/results/2026-11-05-colab-parity-cv.md) | does a PyTorch-trained CV match MATLAB? (69 images, 5-fold CV, 2 RNGs) | means within 0.005 (0.5002, 0.5010 vs 0.5047), but RNG 0's CI reaches −0.024, failing the ±0.02 gate; noise floor per-image SD 0.062, CI ±0.015 |
+| [2026-11-05 tau](docs/results/2026-11-05-tau-crossfit.md) | cross-fit `tau` over 0.40–0.70? (69 images, 5-fold CV, reference + 2 PyTorch caches) | no: −0.0039 CI [−0.0081, −0.0004]; worse on every cache; the curve peaks at 0.5 |
 
 ## History
 

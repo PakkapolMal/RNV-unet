@@ -150,7 +150,8 @@ cfg.CV.reference = fullfile(fileparts(mainDir), 'docs', 'results', 'reference', 
 % cnngvf.maskFromProb, and docs/results/ for why each step is there.
 %
 % tau is PRE-REGISTERED at 0.5. It sets the output directly, so sweeping it on
-% the scored images and quoting the best is leakage.
+% the scored images and quoting the best is leakage. Cross-fitting confirms 0.5;
+% docs/results/2026-11-05-tau-crossfit.md.
 cfg.Post.tau          = 0.5;
 cfg.Post.MinArea      = 500;
 cfg.Post.MorphElement = strel('disk', 2);

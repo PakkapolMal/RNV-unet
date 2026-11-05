@@ -5,10 +5,15 @@ kind: implementation-brief
 audience: Claude Code
 target: RNV-Claude/cnn, MATLAB R2026a
 depends-on: results/2026-09-17-refine.md, results/2026-09-16-reduce.md, results/2026-09-30-relax-grid.md, results/2026-11-05-colab-parity-cv.md, research_analysis/rnv-score-levers-2026-10-29.md
-status: pre-registered 2026-11-05, not yet run
+status: executed 2026-11-05
 ---
 
 # tau, Cross-fitted
+
+> **Executed brief.** Kept as written. Outcome: gates 1, 2 and 4 failed. Cross-fitting
+> loses 0.0039 IoU on the reference cache, CI [−0.0081, −0.0004], and loses on both PyTorch
+> caches too. The curve peaks at 0.50, so `tau` stays 0.50:
+> [../results/2026-11-05-tau-crossfit.md](../results/2026-11-05-tau-crossfit.md).
 
 ## Why
 
