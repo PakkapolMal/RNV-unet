@@ -88,35 +88,62 @@ def stage2(cfg, images, folds, fx, cache_out, device):
     print(f"  vs GPU cache   max |dP| {worst:.2g}; score <cache_out> with run_cache")
 
 
-def stage3(root, run_root, workers):
-    """Fold 1: train 1 epoch, stop, resume to epoch 2, write P."""
+def stage3(root, run_root, workers, budget=False):
+    """Fold 1: train 1 epoch, stop, resume to epoch 2, write P.
+
+    budget runs the options of docs/briefs/train-budget.md (cosine, last epoch,
+    inner images training) and checks the schedule survives the resume.
+    """
     import csv
-    _, _, folds = rt.load_bundle(root)
-    assert rt.train_fold(root, run_root, 1, 0, epochs=2, stop_after=1, workers=workers) is None
-    assert rt.train_fold(root, run_root, 1, 0, epochs=2, workers=workers) is not None
+    import math
+    cfg, images, folds = rt.load_bundle(root)
+    fold = folds[0]
+    opts = dict(lr_schedule="cosine", output="last", inner_val=False) if budget else {}
+    assert rt.train_fold(root, run_root, 1, 0, epochs=2, stop_after=1, workers=workers, **opts) is None
+    assert rt.train_fold(root, run_root, 1, 0, epochs=2, workers=workers, **opts) is not None
     log = list(csv.DictReader(open(Path(run_root) / "fold1" / "log.csv")))
     assert [int(r["epoch"]) for r in log] == [1, 2], f"epochs logged {[r['epoch'] for r in log]}"
     st = torch.load(Path(run_root) / "fold1" / "net.pt", weights_only=False)
-    want = min(log, key=lambda r: float(r["val_loss"]))
-    assert st["epoch"] == int(want["epoch"]), "net.pt is not the best-validation epoch"
+    ck = torch.load(Path(run_root) / "fold1" / "ckpt.pt", weights_only=False)
+    if budget:
+        assert st["epoch"] == 2, f"net.pt holds epoch {st['epoch']}, not the last"
+        assert all(r["val_loss"] == "" for r in log), "a validation loss was logged without inner images"
+        want = [1e-5 + (1e-3 - 1e-5) * (1 + math.cos(math.pi * e / 2)) / 2 for e in (0, 1)]
+        got = [float(r["lr"]) for r in log]
+        assert np.allclose(got, want, rtol=1e-9), f"learning rates {got}, cosine wants {want}"
+        # Patch count, from the bundle directly: every non-test image with a
+        # usable seed trains, and the budget is shared equally across them.
+        held = set(fold["test"])
+        n_img = [n for n, im in images.items() if n not in held and (im["comp"] > 0).any()]
+        n_seed = sum(int((images[n]["comp"] > 0).sum()) for n in n_img)
+        assert n_seed == fold["trainSeeds"] + fold["valSeeds"], "inner seeds did not join training"
+        expect = max(1, int(rt.mround(float(cfg["perSeed"]) * n_seed / len(n_img)))) * len(n_img)
+        assert len(ck["rows"]) == expect, f"{len(ck['rows'])} patches/epoch, expected {expect}"
+    else:
+        want = min(log, key=lambda r: float(r["val_loss"]))
+        assert st["epoch"] == int(want["epoch"]), "net.pt is not the best-validation epoch"
+        assert len(ck["rows"]) == fold["patchesPerEpoch"], "patches/epoch differ from MATLAB's"
     mean = st["model"]["mean"]
-    d = np.abs(mean.numpy() - folds[0]["mean"]).max()
-    assert d <= 0.005, f"zero-centre mean {mean.numpy()} vs MATLAB {folds[0]['mean']}"
+    d = np.abs(mean.numpy() - fold["mean"]).max()
+    assert d <= 0.005, f"zero-centre mean {mean.numpy()} vs MATLAB {fold['mean']}"
     assert float(log[1]["train_loss"]) < float(log[0]["train_loss"]), "training loss did not fall"
     n = len(list((Path(run_root) / "probcache").glob("*.mat")))
-    assert n == len(folds[0]["test"]), f"{n} P files for {len(folds[0]['test'])} held-out images"
+    assert n == len(fold["test"]), f"{n} P files for {len(fold['test'])} held-out images"
     secs = np.mean([float(r["seconds"]) for r in log])
-    print(f"  smoke          ok (resume, best epoch {st['epoch']}, mean within {d:.2g}, loss "
-          f"{float(log[0]['train_loss']):.4f} -> {float(log[1]['train_loss']):.4f})")
+    epochs = 40 if budget else 20
+    print(f"  smoke          ok (resume, output epoch {st['epoch']}, {len(ck['rows'])} patches/epoch, "
+          f"mean within {d:.2g}, loss {float(log[0]['train_loss']):.4f} -> {float(log[1]['train_loss']):.4f}"
+          + (f", lr {log[0]['lr']} -> {log[1]['lr']})" if budget else ")"))
     print(f"  {secs:.0f} s/epoch on {torch.cuda.get_device_name() if torch.cuda.is_available() else 'cpu'}: "
-          f"one 5-fold CV of 20 epochs ~ {secs * 20 * 5 / 3600:.1f} h")
+          f"one 5-fold CV of {epochs} epochs ~ {secs * epochs * 5 / 3600:.1f} h")
 
 
 if __name__ == "__main__":
-    if sys.argv[1] == "stage3":
-        # python colab/test_parity.py stage3 <bundle> <scratch_run_root> [workers]
-        print("stage 3: one-fold smoke")
-        stage3(sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 0)
+    if sys.argv[1] in ("stage3", "budget"):
+        # python colab/test_parity.py stage3|budget <bundle> <scratch_run_root> [workers]
+        print(f"{sys.argv[1]}: one-fold smoke")
+        stage3(sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 0,
+               budget=sys.argv[1] == "budget")
         print("All checks passed.")
         sys.exit()
     root = sys.argv[1]

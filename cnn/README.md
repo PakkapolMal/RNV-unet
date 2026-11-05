@@ -90,7 +90,7 @@ so long training can run on Google Colab. New arms train there; everything else 
 ```
 ../colab/rnvtorch.py      bundle reader, seedPatch, sampler, UNet (+ MATLAB weight load), loss,
                           train_fold (checkpoint + resume), inferProbMap, P-cache writer
-../colab/test_parity.py   stage 1 (fixtures), stage 2 (MATLAB weights -> P), stage 3 (one-fold smoke)
+../colab/test_parity.py   stage 1 (fixtures), stage 2 (MATLAB weights -> P), stage 3 / budget (one-fold smoke)
 ../colab/train.ipynb      Colab driver: mount Drive, copy the bundle, smoke, train one fold
 ```
 
@@ -99,6 +99,10 @@ python colab/test_parity.py cnn/result/DRACTUH_unclustered/colab_bundle <cache_o
 python colab/test_parity.py stage3 cnn/result/DRACTUH_unclustered/colab_bundle <scratch_run_root>
 python colab/rnvtorch.py train cnn/result/DRACTUH_unclustered/colab_bundle <run_root> --fold 1 --rng 0
 ```
+
+Experiment options on `train` (docs/briefs/train-budget.md; defaults are the parity
+configuration): `--lr-schedule cosine`, `--output last`, `--no-inner-val`. A checkpoint
+refuses to resume under different options.
 
 `train` checkpoints every epoch to `<run_root>/fold<k>/` and resumes there when rerun. When it
 finishes, it writes the fold's held-out `P` to `<run_root>/probcache/`. Score a cache with
