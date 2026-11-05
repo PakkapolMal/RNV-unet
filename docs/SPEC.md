@@ -392,7 +392,7 @@ never reads `datasets/`. A trained fold writes its held-out `P` in the `probCach
 `run_cache` scores it with the leakage guard unchanged. Parity with MATLAB: within 0.005 IoU
 on the 69 images, 5-fold CV ([results/2026-11-05-colab-parity-cv.md](results/2026-11-05-colab-parity-cv.md)).
 
-The two parity runs, `cnn/result/DRACTUH_unclustered/colab_runs/parity_rng0` and
+The two parity runs, `cnn/result/DRACTUH_unclustered/colab_baseline/parity_rng0` and
 `parity_rng1`, are the baseline every trained arm is compared with. Their `P` caches are not
 in git; do not delete them.
 
