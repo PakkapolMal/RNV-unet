@@ -113,10 +113,10 @@ horizontal crosshair spanning the whole frame**, plus a corner watermark. After
 `rgb2gray` these become bright, perfectly straight, high-gradient lines, and they cross
 the middle of the frame where lesions are.
 
-**They are deliberately left in.** They are removable (colored pixels are trivially
-separable in RGB, before the grayscale conversion discards the information), but nothing
-removes them today. If a run shows straight-line false positives, this is the first
-suspect, and the fix is a masking step in `cnngvf.loadChannels` before `rgb2gray`.
+**They are deliberately left in, and measured as harmless.** The crosshair sits at rows and
+columns 510–513 in all 27 images. False positives within ±3 px of it occur at 0.80× the rate
+elsewhere in the covered region (CI [0.34, 1.28]). Deleting every in-band false positive,
+an oracle that uses GT, would gain only +0.0019 TUH IoU, so no inpaint-and-retrain fix is
 
 ## The core idea
 
@@ -552,8 +552,6 @@ contending for one laptop GPU is slower than serial.
   baseline caches too. The curve is flat over 0.45–0.60 and peaks at 0.5. The precision gap
   is not a threshold problem ([results/2026-11-05-tau-crossfit.md](results/2026-11-05-tau-crossfit.md)).
   Re-run it if a loss or training change is adopted.
-- **The TUH acquisition overlay is still in the images.** Straight-line false positives are the
-  symptom to watch for.
 - **`299.png` and `445.png` have broken detector points** (445's is a copy of 443's) and
   score ≈ 0. Re-localize them in the upstream stage; see [Seed tolerance](#seed-tolerance).
 - **The balanced-sampling gain is unverified.** Every cross-validated arm used it.
