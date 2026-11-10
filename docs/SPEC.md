@@ -18,7 +18,7 @@ cross-validated number is in the [README](../README.md).
 ## The domain
 
 **69 images across two datasets**, pooled, read from the standardized
-[`../datasets/`](../datasets/) shared with the peer comparisons. **Every image is in scope,
+`datasets/` (not in the repository) shared with the team. **Every image is in scope,
 with or without points**, and every image must have a mask; `cnngvf.manifest` is the single
 place that says so, and errors on an image without a mask. The datasets are read-only
 (CLAUDE.md, "Datasets").
@@ -117,6 +117,7 @@ the middle of the frame where lesions are.
 columns 510–513 in all 27 images. False positives within ±3 px of it occur at 0.80× the rate
 elsewhere in the covered region (CI [0.34, 1.28]). Deleting every in-band false positive,
 an oracle that uses GT, would gain only +0.0019 TUH IoU, so no inpaint-and-retrain fix is
+worth a run (measured 2026-11-05; the record is not public).
 
 ## The core idea
 

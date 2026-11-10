@@ -8,7 +8,7 @@ empty, seed claiming, and a seed hull that fills between nearby seeds. MATLAB R2
 ## Current result
 
 Out-of-sample, 5-fold cross-validation, **69 images** (DRAC22 42 + TUH 27) from the
-standardized [`datasets/`](datasets/), every image scored, whole-image scoring, current
+standardized `datasets/` (not included, see Data), every image scored, whole-image scoring, current
 configuration (`cnngvf.defaults()`: networks trained by the PyTorch trainer for 40 epochs with
 cosine decay and last-epoch output; seed hull link 128 px, relax floor 0.20):
 
@@ -39,8 +39,24 @@ run_steps("458.png") % every intermediate stage of one image, same network
 run_export           % bundle for the PyTorch trainer; training runs on Colab (colab/train.ipynb)
 ```
 
-Datasets: the standardized, read-only [`datasets/`](datasets/) (69 images; see CLAUDE.md).
+Datasets: the standardized, read-only `datasets/` (69 images; see Data and CLAUDE.md).
 Details: [cnn/README.md](cnn/README.md).
+
+## Data
+
+The images, masks and localization points are **not in this repository**. The code expects
+them in `datasets/` at the repository root, laid out as `cnn/README.md` describes:
+
+- **DRAC22** (42 images): from the public DRAC 2022 challenge (Diabetic Retinopathy Analysis
+  Challenge, MICCAI 2022). Obtain it from the challenge under its own terms.
+- **TUH** (27 images): a clinical dataset that is not publicly available.
+
+The localization points (the detector output this pipeline starts from) are not public
+either. The records in `docs/results/` give per-image scores and image names only.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The license covers the code and documents here, not the data.
 
 ## Layout
 
@@ -48,12 +64,11 @@ Details: [cnn/README.md](cnn/README.md).
 |---|---|
 | [`CLAUDE.md`](CLAUDE.md) | rules for coding agents: which docs to update, what to verify, what to ask first |
 | [`cnn/`](cnn/) | the pipeline: package `+cnngvf`, runners, self-check |
-| [`colab/`](colab/) | the PyTorch trainer new arms train with, on Google Colab |
+| [`colab/`](colab/) | the PyTorch trainer the current configuration trains with, on Google Colab |
 | [`docs/SPEC.md`](docs/SPEC.md) | how the current pipeline works and why — current state only |
 | [`docs/CONTEXT.md`](docs/CONTEXT.md) | glossary: one term, one meaning |
 | [`docs/results/`](docs/results/) | dated measurement records, append-only |
 | [`docs/briefs/`](docs/briefs/) | plans written before the work, kept as written |
-| [`docs/research_analysis/`](docs/research_analysis/) | literature-backed proposals for the next levers, kept as written |
 | [`docs/THEORY.md`](docs/THEORY.md) | literature and snake/GVF background |
 
 ### Results, oldest first
@@ -81,6 +96,7 @@ Details: [cnn/README.md](cnn/README.md).
 | [2026-11-02 Colab smoke](docs/results/2026-11-02-colab-parity-smoke-colab.md) | do stages 1–3 pass on Colab, and what does stage 4 cost? (fold 1, 2 epochs, L4) | all pass; 290 s/epoch, ~8.1 h per CV; two seeds fit 120 CU at up to ~6.5 CU/h |
 | [2026-11-05 parity CV](docs/results/2026-11-05-colab-parity-cv.md) | does a PyTorch-trained CV match MATLAB? (69 images, 5-fold CV, 2 RNGs) | means within 0.005 (0.5002, 0.5010 vs 0.5047), but RNG 0's CI reaches −0.024, failing the ±0.02 gate; noise floor per-image SD 0.062, CI ±0.015 |
 | [2026-11-05 tau](docs/results/2026-11-05-tau-crossfit.md) | cross-fit `tau` over 0.40–0.70? (69 images, 5-fold CV, reference + 2 PyTorch caches) | no: −0.0039 CI [−0.0081, −0.0004]; worse on every cache; the curve peaks at 0.5 |
+| 2026-11-05 overlay (record not public) | do false positives concentrate on the TUH crosshair? (27 TUH images, 5-fold CV) | no: FP rate 0.80× elsewhere; an oracle fix gains at most +0.0019 TUH IoU; the overlay stays in |
 | [2026-11-07 budget](docs/results/2026-11-07-train-budget.md) | train 40 epochs, cosine LR, last epoch, inner images in training? (69 images, 5-fold CV, PyTorch) | **adopted: 0.5256**, +0.025 over each 20-epoch baseline, CIs [+0.008, +0.044] and [+0.008, +0.041]; one fold stalled and was retrained per the stall rule |
 | [2026-11-10 budget P](docs/results/2026-11-10-train-budget-pmaps.md) | why does the budget help? (69 images, 5-fold CV `P`, post hoc) | `P` is more decisive (undecided area −0.086 on 61/66 images); gain sits on spill (+0.061) and under-coverage (+0.052); deep misses (`P` < 0.2 in GT) untouched |
 

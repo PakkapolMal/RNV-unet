@@ -48,7 +48,7 @@ test_cnngvf.m           self-check, 9 checks
 Parallel Computing Toolbox. `cnngvf.defaults` fails immediately with a clear message if one
 is missing.
 
-The datasets are the standardized set in [`../datasets/`](../datasets/) (`DRAC22_raw/`,
+The datasets are the standardized set in `datasets/` (not in the repository; see the top-level README, "Data") (`DRAC22_raw/`,
 `DRAC22_filled_gt/`, `TUH_raw/`, `TUH_filled_gt/`, and the two unclustered point CSVs at its
 top level). They are read-only; see CLAUDE.md. `models/` and `result/` are git-ignored.
 
