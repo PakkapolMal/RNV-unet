@@ -1,7 +1,7 @@
 """PyTorch port of the seed-conditioned U-Net: patches, network, loss, training, inference.
 
     python rnvtorch.py train <bundle> <run_root> --fold F --rng R [--epochs N]
-                             [--stop-after N] [--workers N]
+                             [--stop-after N] [--workers N] [--recipe paper]
 
 trains one fold, checkpointing every epoch to <run_root>/fold<F>/ and resuming
 from there when rerun, then writes the fold's held-out P to <run_root>/probcache/.
@@ -200,6 +200,61 @@ def loss_fn(Y, T):
     return 1 - generalized_dice(Y, T).mean()
 
 
+# --- the manuscript's recipe, --recipe paper (docs/briefs/paper-adoption.md) -
+
+PAPER = dict(lr=1e-4, lr_min=1e-6, miniBatch=8)
+
+
+class SmpNet(nn.Module):
+    """ImageNet-pretrained EfficientNet-B3 U-Net from segmentation_models_pytorch.
+    Input standardised per channel; softmax over {background, RNV}, as UNet."""
+
+    def __init__(self, cin=2):
+        super().__init__()
+        import segmentation_models_pytorch as smp
+        self.register_buffer("mean", torch.zeros(cin))
+        self.register_buffer("sd", torch.ones(cin))
+        self.net = smp.Unet("efficientnet-b3", encoder_weights="imagenet", in_channels=cin, classes=2)
+
+    def forward(self, x):
+        x = (x - self.mean.view(1, -1, 1, 1)) / self.sd.view(1, -1, 1, 1)
+        return torch.softmax(self.net(x).float(), 1)
+
+
+def paper_loss(Y, T):
+    """CE + (1 - soft Dice of the foreground pooled over the batch), equal weights.
+    CE over two softmax classes is BCE on their logit difference."""
+    ce = -(T * Y.clamp_min(1e-7).log()).sum(1).mean()
+    dice = 2 * (Y[:, 1] * T[:, 1]).sum() / (Y[:, 1].sum() + T[:, 1].sum() + 1e-7)
+    return ce + 1 - dice
+
+
+def affine_matrix(p, rot, scale, shear):
+    """cv2 2x3 map about the centre of a p x p patch; rot and shear in degrees."""
+    t, s = np.deg2rad(rot), np.deg2rad(shear)
+    A = scale * np.array([[np.cos(t), -np.sin(t)], [np.sin(t), np.cos(t)]]) @ np.array([[1, np.tan(s)], [0, 1]])
+    c = np.full(2, (p - 1) / 2)
+    return np.hstack([A, (c - A @ c)[:, None]]).astype(np.float32)
+
+
+def paper_augment(X, fg, rand):
+    """Affine (p 0.75) on every channel, the heat-map included so it moves with
+    the image, then CLAHE (p 0.5) on the intensity channel. 4 x 4 tiles on 512 px
+    are the manuscript's 8 x 8 on the 1024 px frame. rand() is U(0, 1) from torch."""
+    import cv2
+    p = X.shape[0]
+    if rand() < 0.75:
+        M = affine_matrix(p, 30 * rand() - 15, 0.9 + 0.2 * rand(), 10 * rand() - 5)
+        X = cv2.warpAffine(X, M, (p, p), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101)
+        fg = cv2.warpAffine(fg.astype(np.uint8), M, (p, p), flags=cv2.INTER_NEAREST,
+                            borderMode=cv2.BORDER_REFLECT_101) > 0
+    if rand() < 0.5:
+        X = X.copy()
+        u8 = np.clip(np.round(X[:, :, 0] * 255), 0, 255).astype(np.uint8)
+        X[:, :, 0] = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4)).apply(u8) / np.float32(255)
+    return X, fg
+
+
 # --- inference (cnngvf.inferProbMap) ----------------------------------------
 
 @torch.no_grad()
@@ -252,10 +307,11 @@ def exact_fp32():
 class PatchSet(torch.utils.data.Dataset):
     """One patch per row; training draws a fresh jitter and dihedral transform
     each read, validation is deterministic. Randomness comes from torch, which
-    seeds every DataLoader worker differently."""
+    seeds every DataLoader worker differently. paper adds the manuscript's
+    affine and CLAHE after the dihedral transform."""
 
-    def __init__(self, cfg, images, rows, augment):
-        self.images, self.rows, self.augment = images, rows, augment
+    def __init__(self, cfg, images, rows, augment, paper=False):
+        self.images, self.rows, self.augment, self.paper = images, rows, augment, paper
         self.p, self.sigma, self.jitter = int(cfg["patch"]), float(cfg["sigmaSeed"]), int(cfg["jitter"])
 
     def __len__(self):
@@ -281,6 +337,8 @@ class PatchSet(torch.utils.data.Dataset):
                 X, fg = np.flipud(X), np.flipud(fg)
             r = int(torch.randint(4, (1,)))
             X, fg = np.rot90(X, r), np.rot90(fg, r)
+            if self.paper:
+                X, fg = paper_augment(np.ascontiguousarray(X), np.ascontiguousarray(fg), lambda: float(torch.rand(1)))
         X = torch.from_numpy(np.ascontiguousarray(X.transpose(2, 0, 1)))
         T = torch.from_numpy(np.stack([~fg, fg]).astype(np.float32))
         return X, T
@@ -294,17 +352,21 @@ def glorot_(model):
             nn.init.zeros_(m.bias)
 
 
-def channel_mean(loader):
+def channel_stats(loader):
     """trainnet's zerocenter statistic: per-channel mean over one pass of the
-    training data, augmentation included."""
-    total, n = 0.0, 0
+    training data, augmentation included; and the SD, which the paper recipe
+    standardises by."""
+    total, sq, n = 0.0, 0.0, 0
     for X, _ in loader:
-        total = total + X.double().sum((0, 2, 3))
+        X = X.double()
+        total, sq = total + X.sum((0, 2, 3)), sq + X.square().sum((0, 2, 3))
         n += X.shape[0] * X.shape[2] * X.shape[3]
-    return (total / n).float()
+    mean = total / n
+    return mean.float(), (sq / n - mean.square()).clamp_min(0).sqrt().float()
 
 
-def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, workers=0, device=None):
+def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, workers=0, device=None,
+               recipe="reference"):
     """Train one fold, resuming from <run_root>/fold<k>/ckpt.pt.
 
     cfg.epochsCv epochs of Adam at cfg.learnRate with L2 1e-4 on weights only
@@ -314,6 +376,10 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
     epoch's patch list is drawn once, as prepareData does. Adopted in
     docs/results/2026-11-07-train-budget.md. Returns the trained model, or None
     when stop_after stopped it early.
+
+    recipe "paper" swaps in the manuscript's recipe as one bundle: SmpNet,
+    paper_loss, PAPER's rate and minibatch, bf16 autocast in training, and
+    paper_augment (docs/briefs/paper-adoption.md, arm AB).
 
     rng seeds every random draw: the patch list, the initial weights, jitter,
     flips, shuffle order and dropout. It is not a localization seed. The GPU
@@ -326,19 +392,25 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
     cfg, images, folds = load_bundle(root)
     fold = folds[fold_no - 1]
     assert "lrMin" in cfg, "bundle predates the adopted recipe: re-run run_export"
-    epochs, lr_min = int(epochs or cfg["epochsCv"]), float(cfg["lrMin"])
-    mb = int(cfg["miniBatch"])
+    paper = recipe == "paper"
+    epochs = int(epochs or cfg["epochsCv"])
+    lr, lr_min, mb = ((PAPER["lr"], PAPER["lr_min"], PAPER["miniBatch"]) if paper
+                      else (float(cfg["learnRate"]), float(cfg["lrMin"]), int(cfg["miniBatch"])))
     out = Path(run_root) / f"fold{fold_no}"
     out.mkdir(parents=True, exist_ok=True)
     ckpt = out / "ckpt.pt"
     opts = dict(epochs=epochs, lr_min=lr_min)
+    if paper:
+        opts["recipe"] = recipe     # absent for the reference, so its checkpoints still resume
 
     train = training_rows(cfg, images, fold)
-    model = UNet().to(device)
-    decay = [p for n, p in model.named_parameters() if n.endswith("weight")]
-    no_decay = [p for n, p in model.named_parameters() if n.endswith("bias")]
+    model = (SmpNet() if paper else UNet()).to(device)
+    # Decay conv weights only: in the paper recipe "weight" also names BatchNorm scales.
+    decayed = (lambda n, p: p.ndim > 1) if paper else (lambda n, p: n.endswith("weight"))
+    decay = [p for n, p in model.named_parameters() if decayed(n, p)]
+    no_decay = [p for n, p in model.named_parameters() if not decayed(n, p)]
     opt = torch.optim.Adam([dict(params=decay, weight_decay=1e-4), dict(params=no_decay, weight_decay=0.0)],
-                           lr=float(cfg["learnRate"]), betas=(0.9, 0.999), eps=1e-8)
+                           lr=lr, betas=(0.9, 0.999), eps=1e-8)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs, eta_min=lr_min)
 
     if ckpt.exists():
@@ -357,15 +429,20 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
     else:
         torch.manual_seed(rng)
         rows = epoch_rows(cfg, train, np.random.default_rng(rng))
-        glorot_(model)
-        once = torch.utils.data.DataLoader(PatchSet(cfg, images, rows, True), batch_size=16, num_workers=workers)
+        if not paper:
+            glorot_(model)
+        once = torch.utils.data.DataLoader(PatchSet(cfg, images, rows, True, paper), batch_size=16,
+                                           num_workers=workers)
+        mean, sd = channel_stats(once)
         with torch.no_grad():
-            model.mean.copy_(channel_mean(once).to(device))
+            model.mean.copy_(mean.to(device))
+            if paper:
+                model.sd.copy_(sd.to(device))
         done = 0
     print(f"fold {fold_no}: {len(train)} seeds, {len(rows)} patches/epoch, "
           f"mean {np.round(model.mean.cpu().numpy(), 4)} (MATLAB {np.round(fold['mean'], 4)}), {device}")
 
-    train_loader = torch.utils.data.DataLoader(PatchSet(cfg, images, rows, True), batch_size=mb, shuffle=True,
+    train_loader = torch.utils.data.DataLoader(PatchSet(cfg, images, rows, True, paper), batch_size=mb, shuffle=True,
                                                drop_last=True, num_workers=workers, persistent_workers=workers > 0)
     log = out / "log.csv"
     for epoch in range(done + 1, epochs + 1):
@@ -374,7 +451,9 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
         model.train()
         tl, nb = 0.0, 0
         for X, T in train_loader:
-            loss = loss_fn(model(X.to(device)), T.to(device))
+            with torch.autocast("cuda" if device == "cuda" else "cpu", torch.bfloat16, enabled=paper):
+                Y = model(X.to(device))
+            loss = (paper_loss if paper else loss_fn)(Y.float(), T.to(device))
             opt.zero_grad(set_to_none=True)
             loss.backward()
             opt.step()
@@ -419,5 +498,6 @@ if __name__ == "__main__":
     ap.add_argument("--epochs", type=int)
     ap.add_argument("--stop-after", type=int)
     ap.add_argument("--workers", type=int, default=0)
+    ap.add_argument("--recipe", choices=["reference", "paper"], default="reference")
     a = ap.parse_args()
-    train_fold(a.bundle, a.run_root, a.fold, a.rng, a.epochs, a.stop_after, a.workers)
+    train_fold(a.bundle, a.run_root, a.fold, a.rng, a.epochs, a.stop_after, a.workers, recipe=a.recipe)

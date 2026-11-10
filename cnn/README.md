@@ -102,7 +102,12 @@ python colab/rnvtorch.py train cnn/result/DRACTUH_unclustered/colab_bundle <run_
 `train` runs the bundle's recipe: `epochsCv` epochs, cosine from `learnRate` to `lrMin`, the
 last epoch as output, the inner images training. `--epochs` overrides the count (smoke runs).
 A bundle exported before the recipe was in `cfg.Net` refuses; re-run `run_export`. A
-checkpoint refuses to resume under different settings. Before scoring a run, apply the stall
+checkpoint refuses to resume under different settings.
+
+Experiment on branch `exp/paper-recipe`: `--recipe paper` trains a pretrained EfficientNet-B3
+U-Net with CE + Dice loss and affine + CLAHE augmentation, in place of the adopted recipe. It
+needs `segmentation-models-pytorch==0.5.0` and OpenCV. Smoke it with
+`test_parity.py stage3 <bundle> <scratch_run_root> 0 paper`. Before scoring a run, apply the stall
 rule to every `fold*/log.csv` (SPEC, Network).
 
 `train` checkpoints every epoch to `<run_root>/fold<k>/` and resumes there when rerun. When it
