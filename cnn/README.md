@@ -121,7 +121,9 @@ Output goes to `result/<arm>/`:
 - `cv/probcache/`: the adopted configuration's cross-validated `P`, which `run_cache` reads by
   default; for the current configuration it is copied from a Colab run (`colab_budget/`), for
   a frozen arm `run_cv` writes it along with per-fold outputs and `per_image.csv`
-- `cv_matlab_until_2026-11-10/`: the MATLAB CV output the adoption replaced
+- `../archive/` (that is, `result/archive/`): superseded outputs, kept but unused, including
+  `cv_matlab_until_2026-11-10/`, the MATLAB CV output the adoption replaced. Superseded
+  networks are in `models/archive/`. Neither is read by any runner.
 - `cache/` from `run_cache`: `per_image.csv`, `run_summary.txt`
 
 ## Evaluation

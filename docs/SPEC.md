@@ -418,7 +418,7 @@ unchanged. The port matches MATLAB to within 0.005 IoU on the 69 images, 5-fold 
 
 **The adopted fold networks are PyTorch, and MATLAB does not load them.** Their `P` is the
 cache at `<Output>/cv/probcache`, copied from the run in `<Output>/colab_budget/`. The MATLAB CV
-output it replaced is in `<Output>/cv_matlab_until_2026-11-10/`. `run_cache` is how this
+output it replaced is in `result/archive/cv_matlab_until_2026-11-10/`. `run_cache` is how this
 configuration is scored, and `run_cv` refuses it.
 
 **`run_batch` and `run_steps` still load the MATLAB full-data network**
