@@ -1,5 +1,6 @@
 datasets/
 # Kept locally, not published: they quote other team members' results.
 docs/briefs/overlay-fp.md
+docs/briefs/paper-adoption.md
 docs/results/2026-11-05-overlay-fp.md
 docs/research_analysis/
