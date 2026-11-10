@@ -1,5 +1,9 @@
 # Training twice as long with cosine decay is worth +0.025 IoU and passes its gate (2026-11-07)
 
+> **Follow-up:** the "not tested here" reading of the mechanism is tested in
+> [2026-11-10-train-budget-pmaps.md](2026-11-10-train-budget-pmaps.md): `P` is sharper, and the gain
+> sits on the baseline's spill and under-coverage images.
+
 Brief: [../briefs/train-budget.md](../briefs/train-budget.md) (levers analysis R2). Domain:
 the standardized 69 images (DRAC22 42 + TUH 27). Protocol: 5-fold CV with the reference's
 folds, whole-image scoring by `run_cache` with `cnngvf.defaults()` post-processing.
