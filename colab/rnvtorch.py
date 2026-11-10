@@ -397,7 +397,8 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
             print(f"fold {fold_no}: stopped after epoch {epoch}; rerun to resume")
             return None
 
-    torch.save(dict(model=model.state_dict(), epoch=epochs, rng=rng, opts=opts), out / "net.pt")
+    state = {k: v.detach().cpu() for k, v in model.state_dict().items()}   # loadable without a GPU
+    torch.save(dict(model=state, epoch=epochs, rng=rng, opts=opts), out / "net.pt")
     p, sigma, batch = int(cfg["patch"]), float(cfg["sigmaSeed"]), int(cfg["inferBatch"])
     for name in fold["test"]:
         im = images[name]
