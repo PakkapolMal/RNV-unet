@@ -15,6 +15,11 @@ function net = trainNet(cfg)
 %
 %  See also CNNGVF.PREPAREDATA, CNNGVF.INFERPROBMAP, RUN_TRAIN.
 
+if cfg.Net.trainer ~= "matlab"
+    error('cnngvf:trainNet:trainer', ['Arm %s trains in colab/rnvtorch.py (cfg.Net.trainer "%s"), ' ...
+        'not MATLAB: see cnn/README.md, "Training".'], cfg.Arm, cfg.Net.trainer);
+end
+
 [dsTrain, dsVal, info] = cnngvf.prepareData(cfg);
 
 fprintf('Training on %d images / %d seeds (%d patches per epoch)\n', ...

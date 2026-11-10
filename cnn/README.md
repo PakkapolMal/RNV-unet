@@ -32,9 +32,9 @@ The folder was `CNN+GVF/` until 2026-09-25, when the GVF + level-set stages were
   cvFolds.m             deterministic area-stratified folds over the domain
   evaluate.m            whole-image scoring
   loadMask.m metrics.m saveOverlay.m writeSummary.m    small I/O helpers
-run_train.m             train
+run_train.m             train in MATLAB (frozen arms; the current configuration trains in ../colab/)
 run_batch.m             segment + score every image (mostly in-sample)
-run_cv.m                k-fold, every image out-of-sample - the reportable number
+run_cv.m                k-fold train + score in MATLAB (frozen arms only)
 run_eval.m              re-score cached masks, no GPU
 run_cache.m             score cached cross-validated P, check against the reference
 run_steps.m             one image, every intermediate written out
@@ -62,20 +62,17 @@ cd RNV-Claude/cnn
 
 test_cnngvf                            % verify the install first
 
-run_train                              % -> models/rnvNet_DRACTUH_unclustered.mat
-run_cv                                 % 5 folds, every image out-of-sample (~18 h)
-run_batch                              % -> result/DRACTUH_unclustered/
+run_cache                              % the reportable number: cached 5-fold CV P, seconds
+run_batch                              % -> result/DRACTUH_unclustered/ (MATLAB network, see SPEC)
 
 run_steps("458.png")                   % one DRAC22 image, every stage written out
 run_steps("nv (21).png")               % one TUH image
 
 run_eval(fullfile(cnngvf.defaults().Paths.Output))   % re-score, ~1 s, no GPU
-run_cache                              % cached CV P -> scores + diff vs reference, seconds
 
-cfg = cnngvf.defaults();               % anything is overridable
-cfg.CV.skipTrain = true;               % reuse the fold networks: inference only, minutes
+cfg = cnngvf.arm(cnngvf.defaults(), "unclustered");  % a frozen arm trains in MATLAB
+cfg.CV.skipTrain = true;               % reuse its fold networks: inference only, minutes
 run_cv(cfg);
-
 run_batch("unclustered")               % a frozen arm, by name
 
 run_export                             % -> result/DRACTUH_unclustered/colab_bundle/, minutes
@@ -84,13 +81,15 @@ run_export                             % -> result/DRACTUH_unclustered/colab_bun
 ### PyTorch trainer
 
 `../colab/` ports patch sampling, the U-Net, the loss, training and `P` inference to PyTorch
-so long training can run on Google Colab. New arms train there; everything else stays here. Plan and gates:
-[../docs/briefs/colab-parity.md](../docs/briefs/colab-parity.md).
+so long training can run on Google Colab. The current configuration trains there, with the
+recipe in `cfg.Net` (`epochsCv`, `learnRate`, `lrMin`) carried by the bundle; everything else
+stays here. Port and parity: [../docs/briefs/colab-parity.md](../docs/briefs/colab-parity.md).
+Recipe: [../docs/results/2026-11-07-train-budget.md](../docs/results/2026-11-07-train-budget.md).
 
 ```
 ../colab/rnvtorch.py      bundle reader, seedPatch, sampler, UNet (+ MATLAB weight load), loss,
                           train_fold (checkpoint + resume), inferProbMap, P-cache writer
-../colab/test_parity.py   stage 1 (fixtures), stage 2 (MATLAB weights -> P), stage 3 / budget (one-fold smoke)
+../colab/test_parity.py   stage 1 (fixtures), stage 2 (MATLAB weights -> P), stage 3 (one-fold smoke)
 ../colab/train.ipynb      Colab driver: mount Drive, copy the bundle, smoke, train one fold
 ```
 
@@ -100,9 +99,11 @@ python colab/test_parity.py stage3 cnn/result/DRACTUH_unclustered/colab_bundle <
 python colab/rnvtorch.py train cnn/result/DRACTUH_unclustered/colab_bundle <run_root> --fold 1 --rng 0
 ```
 
-Experiment options on `train` (docs/briefs/train-budget.md; defaults are the parity
-configuration): `--lr-schedule cosine`, `--output last`, `--no-inner-val`. A checkpoint
-refuses to resume under different options.
+`train` runs the bundle's recipe: `epochsCv` epochs, cosine from `learnRate` to `lrMin`, the
+last epoch as output, the inner images training. `--epochs` overrides the count (smoke runs).
+A bundle exported before the recipe was in `cfg.Net` refuses; re-run `run_export`. A
+checkpoint refuses to resume under different settings. Before scoring a run, apply the stall
+rule to every `fold*/log.csv` (SPEC, Network).
 
 `train` checkpoints every epoch to `<run_root>/fold<k>/` and resumes there when rerun. When it
 finishes, it writes the fold's held-out `P` to `<run_root>/probcache/`. Score a cache with
@@ -117,7 +118,10 @@ Output goes to `result/<arm>/`:
 - `overlay/<stem>.png` — image + seeds + final contours
 - `prob/<stem>.png` — the CNN probability map
 - `per_image.csv`, `run_summary.txt`
-- `cv/` from `run_cv`: per-fold outputs, `probcache/`, and the aggregate `per_image.csv`
+- `cv/probcache/`: the adopted configuration's cross-validated `P`, which `run_cache` reads by
+  default; for the current configuration it is copied from a Colab run (`colab_budget/`), for
+  a frozen arm `run_cv` writes it along with per-fold outputs and `per_image.csv`
+- `cv_matlab_until_2026-11-10/`: the MATLAB CV output the adoption replaced
 - `cache/` from `run_cache`: `per_image.csv`, `run_summary.txt`
 
 ## Evaluation

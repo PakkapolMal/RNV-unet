@@ -66,6 +66,12 @@ elseif isstring(cfg) || ischar(cfg)
     cfg = cnngvf.arm(cnngvf.defaults(), cfg);
 end
 arm = cfg.Arm;
+% Its fold networks are PyTorch, so MATLAB can neither train them nor, with
+% skipTrain, re-infer them: run_cache scores their cached P.
+if cfg.Net.trainer ~= "matlab"
+    error('cnngvf:runCv:trainer', ['Arm %s trains in colab/rnvtorch.py (cfg.Net.trainer "%s"). ' ...
+        'Score its cross-validated P with run_cache; see cnn/README.md, "Training".'], arm, cfg.Net.trainer);
+end
 
 % 20 epochs, not the 30 a single training run uses. Cross-validation pays for
 % training k times. OutputNetwork="best-validation" keeps the best checkpoint,

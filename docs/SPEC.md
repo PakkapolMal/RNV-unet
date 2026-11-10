@@ -329,8 +329,33 @@ would pin a seed-rich image to the same subset in CSV order for the whole run.
 
 ### Network
 
-`unet([512 512 2], 2, EncoderDepth=4)`, loss `1 - generalizedDice`, Adam, lr 1e-3,
-30 epochs (20 under `run_cv`), `OutputNetwork="best-validation"`.
+`unet([512 512 2], 2, EncoderDepth=4)`, loss `1 - generalizedDice`, Adam with L2 1e-4 on
+weights, minibatch 2. The adopted networks are trained by the PyTorch trainer
+(`colab/rnvtorch.py`, `cfg.Net.trainer = "pytorch"`):
+
+| parameter | value | why |
+|---|---|---|
+| `Net.epochsCv` | **40** | the loss still falls at epoch 20, and still slightly at 40 |
+| `Net.learnRate` → `Net.lrMin` | **1e-3 → 1e-5, cosine**, stepped per epoch | |
+| output network | **the last epoch** | best-validation picked on 2 images' noise |
+| inner validation | **none**: the 2 inner images train | selection cost training data |
+
+Together these four are worth **+0.025 IoU** over 20 epochs at a constant rate with
+best-validation output: 69 images, 5-fold CV, both CIs above 0
+([results/2026-11-07-train-budget.md](results/2026-11-07-train-budget.md)). They were tested as
+one bundle, so which change carries the gain is unknown. The gain comes from a more decisive
+`P`, which cuts spill and fills under-coverage
+([results/2026-11-10-train-budget-pmaps.md](results/2026-11-10-train-budget-pmaps.md)).
+
+**Stalls.** About 1 PyTorch fold training in 8 stalls: its loss sits near 0.40 from epoch 3.
+The stall rule, from training loss only, catches it before scoring: a fold whose last-five-epoch
+mean loss exceeds 0.35 is retrained once with the next `--rng`, and that retrain is used
+whatever it scores ([briefs/train-budget.md](briefs/train-budget.md)).
+
+The MATLAB trainer (`cnngvf.trainNet`) still runs the old recipe: 30 epochs (20 under
+`run_cv`), constant rate, `OutputNetwork="best-validation"`. Only the frozen arms
+(`cfg.Net.trainer = "matlab"`) use it. For the current configuration, `trainNet` and `run_cv`
+refuse.
 
 | parameter | value | why |
 |---|---|---|
@@ -363,34 +388,42 @@ archives any existing network with a timestamp before saving.
 cd RNV-Claude/cnn
 test_cnngvf                            % 9 checks; needs datasets/
 
-run_train                              % -> models/rnvNet_DRACTUH_unclustered.mat
 run_batch                              % -> result/DRACTUH_unclustered/  (mostly in-sample)
-run_cv                                 % the reportable number: 5 folds over 69 images
+run_cache                              % the reportable number: cached 5-fold CV P over 69 images
 
 run_steps("458.png")                   % every intermediate, one DRAC22 image
 run_steps("nv (21).png")               % ... or one TUH image
 run_eval(dir)                          % re-score cached masks, ~1 s, no GPU
-run_cache                              % cached CV P through the current post-processing
 
-run_batch("unclustered")               % a frozen arm, by name
+run_cv("unclustered")                  % a frozen arm trains and scores in MATLAB
 ```
 
 Every runner takes nothing (the current configuration), a frozen arm's name, or a `cfg`
-struct. `cfg.CV.skipTrain = true` makes `run_cv` reuse existing fold networks — inference
-only, minutes instead of ~18 h, and how an interrupted run resumes.
+struct. For a frozen arm, `cfg.CV.skipTrain = true` makes `run_cv` reuse existing fold
+networks — inference only, minutes instead of ~18 h, and how an interrupted run resumes.
 
 **Verifying a change after `P`.** `run_cache` scores the fold-cached `P`
 (`cfg.CV.probCache`, default `<Output>/cv/probcache`) through the current post-processing
 and compares each image's IoU with `cfg.CV.reference`, the adopted configuration's record in
 `results/reference/`. A refactor reproduces it to ~1e-15; anything larger is a result.
 
-**Training is PyTorch, on Colab (`colab/`).** New arms train there; the MATLAB trainer
-(`trainNet`, `run_train`, `run_cv` training) stays because it produced the adopted reference
-networks, which `run_batch` and `run_steps` load. `run_export` writes everything training and
-inference read (channels, labels, seeds, folds) to `<Output>/colab_bundle`, so the Python side
-never reads `datasets/`. A trained fold writes its held-out `P` in the `probCache` format, and
-`run_cache` scores it with the leakage guard unchanged. Parity with MATLAB: within 0.005 IoU
-on the 69 images, 5-fold CV ([results/2026-11-05-colab-parity-cv.md](results/2026-11-05-colab-parity-cv.md)).
+**Training is PyTorch, on Colab (`colab/`).** The current configuration's fold networks are
+trained there with the recipe in `cfg.Net` (see Network). `run_export` writes everything
+training and inference read (channels, labels, seeds, folds, the recipe) to
+`<Output>/colab_bundle`, so the Python side never reads `datasets/`. A trained fold writes its
+held-out `P` in the `probCache` format, and `run_cache` scores it with the leakage guard
+unchanged. The port matches MATLAB to within 0.005 IoU on the 69 images, 5-fold CV
+([results/2026-11-05-colab-parity-cv.md](results/2026-11-05-colab-parity-cv.md)).
+
+**The adopted fold networks are PyTorch, and MATLAB does not load them.** Their `P` is the
+cache at `<Output>/cv/probcache`, copied from the run in `<Output>/colab_budget/`. The MATLAB CV
+output it replaced is in `<Output>/cv_matlab_until_2026-11-10/`. `run_cache` is how this
+configuration is scored, and `run_cv` refuses it.
+
+**`run_batch` and `run_steps` still load the MATLAB full-data network**
+(`models/rnvNet_DRACTUH_unclustered.mat`, old recipe, 30 epochs). Their masks and steps
+therefore show the pre-adoption network, not the adopted one. No full-data network has been
+trained with the adopted recipe. This was decided on 2026-11-10.
 
 The two parity runs, `cnn/result/DRACTUH_unclustered/colab_baseline/parity_rng0` and
 `parity_rng1`, are the baseline every trained arm is compared with. Their `P` caches are not
@@ -452,8 +485,8 @@ ones in `+cnngvf/arm.m` override only what differs:
 
 | arm | datasets | points | channels | perSeed | fallback | claim | output |
 |---|---|---|---|---|---|---|---|
-| **`DRACTUH_unclustered`** | DRAC22 + TUH | unclustered | 1 (+heat-map) | 4 | relax 0.20 | boundary + seed hull 128 | `result/DRACTUH_unclustered/` |
-| `unclustered` | DRAC22 | unclustered | 1 (+heat-map) | 4 | disk | centroid | `result/unclustered/` |
+| **`DRACTUH_unclustered`** | DRAC22 + TUH | unclustered | 1 (+heat-map) | 4 | relax 0.20 | boundary + seed hull 128 | `result/DRACTUH_unclustered/`; trains in PyTorch |
+| `unclustered` | DRAC22 | unclustered | 1 (+heat-map) | 4 | disk | centroid | `result/unclustered/`; trains in MATLAB |
 | `unclustered_boundary` | DRAC22 | unclustered | 1 (+heat-map) | 4 | disk | boundary | `result/unclustered_boundary/` |
 
 The frozen arms keep their trained networks loadable, but their recorded numbers were measured

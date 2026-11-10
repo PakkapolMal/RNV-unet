@@ -45,8 +45,6 @@ def load_bundle(root):
             seeds=np.asarray(m["seeds"], float).reshape(-1, 2),
             comp=np.atleast_1d(m["comp"]).astype(int),
             dataset=str(m["dataset"]),
-            refP=m["refP"] if np.size(m["refP"]) else None,
-            refFold=float(m["refFold"]),
         )
     folds = []
     for f in range(1, int(cfg["k"]) + 1):
@@ -88,22 +86,14 @@ def seed_patch(chans, seed, center, p, sigma):
     return X, rows, cols
 
 
-def training_rows(cfg, images, fold, inner_val=True):
-    """Seed rows (image, seed index) that train and validate one fold.
-
-    Training images are those with points, minus the fold's test images and,
-    when inner_val, its inner-validation images; seeds with comp 0 are dropped
-    (cnngvf.seedLabels). Without inner_val the inner images train and val is
-    empty (docs/briefs/train-budget.md).
-    """
+def training_rows(cfg, images, fold):
+    """Seed rows (image, seed index) that train one fold: every image but the
+    fold's test images, seeds with comp 0 dropped (cnngvf.seedLabels). Nothing
+    is held out for validation: the last epoch is the output
+    (docs/results/2026-11-07-train-budget.md)."""
     held = set(fold["test"])
-    train, val = [], []
-    for name, im in images.items():
-        if name in held:
-            continue
-        rows = [(name, s) for s in range(len(im["comp"])) if im["comp"][s] > 0]
-        (val if inner_val and name in fold["inner"] else train).extend(rows)
-    return train, val
+    return [(name, s) for name, im in images.items() if name not in held
+            for s in range(len(im["comp"])) if im["comp"][s] > 0]
 
 
 def epoch_rows(cfg, train, rng):
@@ -314,64 +304,56 @@ def channel_mean(loader):
     return (total / n).float()
 
 
-def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, workers=0, device=None,
-               lr_schedule="constant", output="best-validation", inner_val=True):
-    """Train one fold as run_cv does, resuming from <run_root>/fold<k>/ckpt.pt.
+def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, workers=0, device=None):
+    """Train one fold, resuming from <run_root>/fold<k>/ckpt.pt.
 
-    Adam at cfg.learnRate with L2 1e-4 on weights only (MATLAB's default, added
-    to the gradient: torch Adam's weight_decay, not AdamW), minibatch
-    cfg.miniBatch, shuffle every epoch, validation once per epoch,
-    best-validation output. The epoch's patch list is drawn once, as
-    prepareData does. Returns the trained model, or None when stop_after
-    stopped it early.
-
-    lr_schedule "cosine" decays 1e-3 -> 1e-5 over the epochs, stepped per epoch;
-    output "last" keeps the last epoch; inner_val False trains on the inner
-    images and needs output "last". The defaults are the parity configuration;
-    the others are the experiment of docs/briefs/train-budget.md.
+    cfg.epochsCv epochs of Adam at cfg.learnRate with L2 1e-4 on weights only
+    (MATLAB's default, added to the gradient: torch Adam's weight_decay, not
+    AdamW), cosine-decayed to cfg.lrMin and stepped once per epoch, minibatch
+    cfg.miniBatch, shuffle every epoch. The last epoch is the output. The
+    epoch's patch list is drawn once, as prepareData does. Adopted in
+    docs/results/2026-11-07-train-budget.md. Returns the trained model, or None
+    when stop_after stopped it early.
 
     rng seeds every random draw: the patch list, the initial weights, jitter,
     flips, shuffle order and dropout. It is not a localization seed. The GPU
     arithmetic is not deterministic, so the same rng does not repeat a run
     exactly (docs/results/2026-11-02-colab-parity-smoke-local.md).
     """
-    assert lr_schedule in ("constant", "cosine") and output in ("best-validation", "last")
-    assert inner_val or output == "last", "without inner validation there is nothing to select on"
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     exact_fp32()
     torch.backends.cudnn.benchmark = True
     cfg, images, folds = load_bundle(root)
     fold = folds[fold_no - 1]
-    epochs = int(epochs or cfg["epochsCv"])
+    assert "lrMin" in cfg, "bundle predates the adopted recipe: re-run run_export"
+    epochs, lr_min = int(epochs or cfg["epochsCv"]), float(cfg["lrMin"])
     mb = int(cfg["miniBatch"])
     out = Path(run_root) / f"fold{fold_no}"
     out.mkdir(parents=True, exist_ok=True)
     ckpt = out / "ckpt.pt"
-    opts = dict(epochs=epochs, lr_schedule=lr_schedule, output=output, inner_val=inner_val)
+    opts = dict(epochs=epochs, lr_min=lr_min)
 
-    train, val = training_rows(cfg, images, fold, inner_val)
+    train = training_rows(cfg, images, fold)
     model = UNet().to(device)
     decay = [p for n, p in model.named_parameters() if n.endswith("weight")]
     no_decay = [p for n, p in model.named_parameters() if n.endswith("bias")]
     opt = torch.optim.Adam([dict(params=decay, weight_decay=1e-4), dict(params=no_decay, weight_decay=0.0)],
                            lr=float(cfg["learnRate"]), betas=(0.9, 0.999), eps=1e-8)
-    sched = (torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs, eta_min=1e-5)
-             if lr_schedule == "cosine" else None)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs, eta_min=lr_min)
 
     if ckpt.exists():
         # CPU: the RNG states must stay CPU tensors; load_state_dict moves the rest.
         st = torch.load(ckpt, map_location="cpu", weights_only=False)
-        # A run resumed with other options would be neither arm.
+        # A run resumed with other settings would be neither recipe.
         assert st.get("opts", opts) == opts, f"checkpoint was trained with {st.get('opts')}, not {opts}"
         model.load_state_dict(st["model"])
         opt.load_state_dict(st["opt"])
-        if sched is not None:
-            sched.load_state_dict(st["sched"])
+        sched.load_state_dict(st["sched"])
         torch.set_rng_state(st["torch_rng"])
         if device == "cuda" and st["cuda_rng"] is not None:
             torch.cuda.set_rng_state(st["cuda_rng"])
-        rows, done, best = st["rows"], st["epoch"], st["best"]
-        print(f"fold {fold_no}: resuming after epoch {done} (best epoch {best['epoch']})")
+        rows, done = st["rows"], st["epoch"]
+        print(f"fold {fold_no}: resuming after epoch {done}")
     else:
         torch.manual_seed(rng)
         rows = epoch_rows(cfg, train, np.random.default_rng(rng))
@@ -379,13 +361,12 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
         once = torch.utils.data.DataLoader(PatchSet(cfg, images, rows, True), batch_size=16, num_workers=workers)
         with torch.no_grad():
             model.mean.copy_(channel_mean(once).to(device))
-        done, best = 0, dict(loss=float("inf"), epoch=0, state=None)
-    print(f"fold {fold_no}: {len(train)} seeds, {len(rows)} patches/epoch, {len(val)} validation seeds, "
+        done = 0
+    print(f"fold {fold_no}: {len(train)} seeds, {len(rows)} patches/epoch, "
           f"mean {np.round(model.mean.cpu().numpy(), 4)} (MATLAB {np.round(fold['mean'], 4)}), {device}")
 
     train_loader = torch.utils.data.DataLoader(PatchSet(cfg, images, rows, True), batch_size=mb, shuffle=True,
                                                drop_last=True, num_workers=workers, persistent_workers=workers > 0)
-    val_loader = torch.utils.data.DataLoader(PatchSet(cfg, images, val, False), batch_size=mb, num_workers=workers)
     log = out / "log.csv"
     for epoch in range(done + 1, epochs + 1):
         t = time.time()
@@ -398,49 +379,32 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
             loss.backward()
             opt.step()
             tl, nb = tl + loss.item(), nb + 1
-        if sched is not None:
-            sched.step()
-        vl = float("nan")
-        if val:
-            model.eval()
-            vl, nv = 0.0, 0
-            with torch.no_grad():
-                for X, T in val_loader:
-                    vl += (1 - generalized_dice(model(X.to(device)), T.to(device))).sum().item()
-                    nv += X.shape[0]
-            vl /= nv
-        if output == "last" or vl < best["loss"]:
-            best = dict(loss=vl, epoch=epoch,
-                        state={k: v.detach().cpu().clone() for k, v in model.state_dict().items()})
+        sched.step()
         secs = time.time() - t
         new = not log.exists()
         with open(log, "a", newline="") as fh:
             wr = csv.writer(fh)
             if new:
-                wr.writerow(["epoch", "train_loss", "val_loss", "seconds", "best_epoch", "lr"])
-            wr.writerow([epoch, tl / nb, "" if np.isnan(vl) else vl, round(secs, 1), best["epoch"], lr])
-        print(f"fold {fold_no} epoch {epoch}/{epochs}: train {tl / nb:.4f} val {vl:.4f} lr {lr:.3g} "
-              f"(output epoch {best['epoch']}) {secs:.0f} s", flush=True)
+                wr.writerow(["epoch", "train_loss", "seconds", "lr"])
+            wr.writerow([epoch, tl / nb, round(secs, 1), lr])
+        print(f"fold {fold_no} epoch {epoch}/{epochs}: train {tl / nb:.4f} lr {lr:.3g} {secs:.0f} s", flush=True)
         st = dict(model=model.state_dict(), opt=opt.state_dict(), torch_rng=torch.get_rng_state(),
                   cuda_rng=torch.cuda.get_rng_state() if device == "cuda" else None,
-                  sched=sched.state_dict() if sched is not None else None,
-                  rows=rows, epoch=epoch, best=best, rng=rng, opts=opts)
+                  sched=sched.state_dict(), rows=rows, epoch=epoch, rng=rng, opts=opts)
         torch.save(st, out / "ckpt.tmp")
         os.replace(out / "ckpt.tmp", ckpt)    # a disconnect mid-write keeps the last good one
         if stop_after and epoch - done >= stop_after and epoch < epochs:
             print(f"fold {fold_no}: stopped after epoch {epoch}; rerun to resume")
             return None
 
-    model.load_state_dict(best["state"])
-    torch.save(dict(model=best["state"], epoch=best["epoch"], val_loss=best["loss"], rng=rng, opts=opts),
-               out / "net.pt")
+    torch.save(dict(model=model.state_dict(), epoch=epochs, rng=rng, opts=opts), out / "net.pt")
     p, sigma, batch = int(cfg["patch"]), float(cfg["sigmaSeed"]), int(cfg["inferBatch"])
     for name in fold["test"]:
         im = images[name]
         P = infer_prob_map(im["chans"], im["seeds"], model, p, sigma, batch, device)
         write_prob_cache(Path(run_root) / "probcache", name, P, fold_no, arm=str(cfg["arm"]),
-                         netFile=f"PyTorch fold {fold_no} rng {rng} epoch {best['epoch']} {opts}")
-    print(f"fold {fold_no}: done, output epoch {best['epoch']}, P written for {len(fold['test'])} held-out images")
+                         netFile=f"PyTorch fold {fold_no} rng {rng} epoch {epochs} {opts}")
+    print(f"fold {fold_no}: done, P written for {len(fold['test'])} held-out images")
     return model
 
 
@@ -454,9 +418,5 @@ if __name__ == "__main__":
     ap.add_argument("--epochs", type=int)
     ap.add_argument("--stop-after", type=int)
     ap.add_argument("--workers", type=int, default=0)
-    ap.add_argument("--lr-schedule", choices=["constant", "cosine"], default="constant")
-    ap.add_argument("--output", choices=["best-validation", "last"], default="best-validation")
-    ap.add_argument("--no-inner-val", action="store_true")
     a = ap.parse_args()
-    train_fold(a.bundle, a.run_root, a.fold, a.rng, a.epochs, a.stop_after, a.workers,
-               lr_schedule=a.lr_schedule, output=a.output, inner_val=not a.no_inner_val)
+    train_fold(a.bundle, a.run_root, a.fold, a.rng, a.epochs, a.stop_after, a.workers)

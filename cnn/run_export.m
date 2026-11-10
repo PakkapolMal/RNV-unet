@@ -11,13 +11,16 @@ function outDir = run_export(cfg, outDir)
 %    bundle.mat          the cfg values training and inference use
 %    images/<stem>.mat   chans (loadChannels), label (FilledGT labelmatrix),
 %                        seeds, comp (cnngvf.seedLabels; 0 = dropped from
-%                        training), refP and refFold (the cached CV P, if any)
+%                        training)
 %    folds/fold<k>.mat   test and inner-validation images, the patch counts the
 %                        MATLAB run recorded, and that fold network's weights
 %                        and input mean
 %    fixtures.mat        seedPatch crops, dihedral transforms, generalizedDice
 %                        values, one network forward pass and one whole-image P
 %                        (CPU), each produced by the MATLAB code itself
+%
+%  The recipe the trainer runs (epochsCv, learnRate, lrMin) comes from cfg.Net,
+%  so a bundle exported before a recipe change trains the old one: re-export.
 %
 %  .mat v7, which scipy.io.loadmat reads. Strings are saved as cellstr for the
 %  same reason. A few minutes; nothing trains.
@@ -42,11 +45,6 @@ M = cnngvf.manifest(cfg);
 folds = cnngvf.cvFolds(cfg);
 k = numel(folds);
 
-cacheDir = cfg.CV.probCache;
-if strlength(cacheDir) == 0
-    cacheDir = fullfile(cfg.Paths.Output, 'cv', 'probcache');
-end
-
 fprintf('run_export | arm %s | %d images | %d folds -> %s\n', cfg.Arm, height(M), k, outDir);
 
 % --- bundle.mat ------------------------------------------------------------
@@ -61,7 +59,8 @@ b.perSeed     = cfg.Patch.perSeed;
 b.seedTolerance  = cfg.Patch.seedTolerance;
 b.balanceByImage = cfg.Patch.balanceByImage;
 b.encoderDepth = cfg.Net.encoderDepth;
-b.epochsCv    = 20;                     % run_cv's override of cfg.Net.epochs
+b.epochsCv    = cfg.Net.epochsCv;
+b.lrMin       = cfg.Net.lrMin;
 b.miniBatch   = cfg.Net.miniBatch;
 b.inferBatch  = cfg.Net.inferBatch;
 b.learnRate   = cfg.Net.learnRate;
@@ -77,14 +76,7 @@ for i = 1:height(M)
     im.label   = uint16(L);
     im.name    = char(M.Name(i));
     im.dataset = char(M.Dataset(i));
-    im.refP    = single([]);
-    im.refFold = NaN;
     [~, stem] = fileparts(M.Name(i));
-    if isfile(fullfile(cacheDir, char(stem + ".mat")))
-        c = cnngvf.probCache("read", cacheDir, M.Name(i), cfg);   % fold-checked
-        im.refP    = single(c.P);
-        im.refFold = c.meta.fold;
-    end
     save(fullfile(outDir, 'images', char(stem + ".mat")), '-struct', 'im', '-v7');
 end
 

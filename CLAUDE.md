@@ -84,7 +84,8 @@ gives the domain and protocol behind every number.
 ## What you may run without asking
 
 - Freely: `test_cnngvf`, `run_cache`, `run_eval`, `run_steps`, `run_batch` on a subset,
-  `run_cv` with `cfg.CV.skipTrain = true`, read-only git.
+  `run_cv` with `cfg.CV.skipTrain = true` on a frozen arm, read-only git. The current
+  configuration trains in `colab/` and `run_cv` refuses it; score it with `run_cache`.
 - Ask first: `run_train`, `run_cv` that trains, anything expected to take over ~15 min.
 - Commit freely, one logical change per commit. **Never push, force-push, or delete a
   branch or tag without asking.**

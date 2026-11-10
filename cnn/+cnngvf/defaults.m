@@ -106,7 +106,17 @@ cfg.Patch.balanceByImage = true;
 
 % --- U-Net -----------------------------------------------------------------
 cfg.Net.encoderDepth = 4;
-cfg.Net.epochs       = 30;   % run_cv uses 20
+% Which trainer produces this configuration's networks. "pytorch": colab/
+% rnvtorch.py trains it, through run_export's bundle, and MATLAB refuses to
+% (cnngvf.trainNet, run_cv). Frozen arms set "matlab" (cnngvf.arm).
+cfg.Net.trainer      = "pytorch";
+% The adopted recipe, read by colab/rnvtorch.py: epochsCv epochs, learning rate
+% cosine-decayed from learnRate to lrMin, last epoch kept, no inner validation.
+% +0.025 IoU over 20 epochs at a constant rate with best-validation output;
+% docs/results/2026-11-07-train-budget.md.
+cfg.Net.epochsCv     = 40;
+cfg.Net.lrMin        = 1e-5;
+cfg.Net.epochs       = 30;   % MATLAB trainer only (frozen arms); run_cv uses 20
 % 4 ran out of memory at iteration 0 on an 8 GB GPU. Validation follows
 % MiniBatchSize; trainingOptions has no ValidationMiniBatchSize for adam.
 cfg.Net.miniBatch    = 2;
@@ -143,7 +153,7 @@ cfg.CV.probCache = "";
 % The per-image record run_cache compares against: the adopted configuration's
 % cross-validated scores. A new adoption adds a new file here; old ones stay.
 cfg.CV.reference = fullfile(fileparts(mainDir), 'docs', 'results', 'reference', ...
-    '2026-10-23-standardized-69.csv');
+    '2026-11-07-train-budget-69.csv');
 
 % --- Post-processing -------------------------------------------------------
 % P > tau -> seed fallback -> imclose -> imfill -> seedMasks. See
