@@ -12,7 +12,8 @@ each, and a copy here would go stale.
 - **Living docs** describe the current state and must change whenever it does:
   `README.md`, `docs/SPEC.md`, `docs/CONTEXT.md`, `cnn/README.md`, this file.
 - **Records** are frozen: `docs/results/*` (including `reference/`), `docs/briefs/*` and
-  `docs/research_analysis/*` (literature-backed proposals for what to try next; not measurements).
+  `docs/research_analysis/*` (literature-backed proposals for what to try next; not measurements;
+  git-ignored, local only).
   Never edit one, except to fix a link or add a banner saying what superseded it.
 
 ## Datasets

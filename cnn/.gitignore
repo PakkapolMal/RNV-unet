@@ -1,5 +1,2 @@
-# Trained networks and run outputs are reproducible from code + data, and do not
-# belong in history: .mat files do not delta-compress, so every retrain would add
-# another ~80 MB blob. One commit of them already cost 235 MB of .git.
 models/
 result/
