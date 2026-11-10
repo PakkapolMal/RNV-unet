@@ -40,7 +40,7 @@ The stall rule was applied to every fold's `log.csv` before any scoring.
 - **The stall threshold is 0.35.**
 - **The stalled run left no trace on disk.** The retrain was copied over the stalled fold's
   folder, so the stalled `log.csv` and `P` no longer exist. The 0.381 figure is from the
-  log read on 2026-11-07, quoted in commit `7f139fd`.
+  log read on 2026-11-07, quoted in commit `867efc3`.
 - **Provenance of the scored `P`:** every cached `P` names its network. The 14 fold-3 maps
   come from `fold 3 rng 1 epoch 40`; all others come from `rng 0 epoch 40`. All carry the
   arm's options.
