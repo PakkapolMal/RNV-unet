@@ -21,7 +21,7 @@ last-epoch output; seed hull link 128 px, relax floor 0.20):
 | TUH | 27 | 0.7245 | | 0.8343 | 0.8131 | 0.8713 |
 
 Post-processing settings were fixed on the earlier 68-image data and the replica U-Net's `P`;
-re-fitting them on this `P` is next. The network recipe passed a pre-registered margin gate
+re-fitting `tau` and `relaxFloor` on this `P` gained nothing (+0.0004 cross-fitted). The network recipe passed a pre-registered margin gate
 against the previous configuration (+0.087 IoU, CI [+0.056, +0.118]); it was trained once,
 so the figure carries the training noise floor of about ±0.015. Six DRAC22 images have no
 usable localization point and score 0; the mean over the other 63 (0.6668) is a labelled
@@ -103,6 +103,7 @@ MIT, see [LICENSE](LICENSE). The license covers the code and documents here, not
 | [2026-11-07 budget](docs/results/2026-11-07-train-budget.md) | train 40 epochs, cosine LR, last epoch, inner images in training? (69 images, 5-fold CV, PyTorch) | **adopted: 0.5256**, +0.025 over each 20-epoch baseline, CIs [+0.008, +0.044] and [+0.008, +0.041]; one fold stalled and was retrained per the stall rule |
 | [2026-11-10 budget P](docs/results/2026-11-10-train-budget-pmaps.md) | why does the budget help? (69 images, 5-fold CV `P`, post hoc) | `P` is more decisive (undecided area −0.086 on 61/66 images); gain sits on spill (+0.061) and under-coverage (+0.052); deep misses (`P` < 0.2 in GT) untouched |
 | [2026-11-11 recipe](docs/results/2026-11-11-paper-recipe.md) | pretrained EfficientNet-B3 U-Net, CE + Dice, affine + CLAHE, one bundle? (69 images, 5-fold CV, PyTorch) | **adopted: 0.6125**, +0.087 CI [+0.056, +0.118] by a margin gate; spill ×2.20 → ×1.17, under-coverage ×0.52 → ×0.86 |
+| [2026-11-11 refit](docs/results/2026-11-11-tau-floor-refit.md) | re-fit `tau` × `relaxFloor` on the new `P`? (69 images, 5-fold CV, cross-fitted) | no: +0.0004 CI [−0.003, +0.003]; folds disagree; both stay |
 
 ## History
 
