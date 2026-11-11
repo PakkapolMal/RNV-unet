@@ -19,7 +19,8 @@ function outDir = run_export(cfg, outDir)
 %                        values, one network forward pass and one whole-image P
 %                        (CPU), each produced by the MATLAB code itself
 %
-%  The recipe the trainer runs (epochsCv, learnRate, lrMin) comes from cfg.Net,
+%  The recipe the trainer runs (encoder, epochsCv, learnRate, lrMin, miniBatch)
+%  comes from cfg.Net,
 %  so a bundle exported before a recipe change trains the old one: re-export.
 %
 %  .mat v7, which scipy.io.loadmat reads. Strings are saved as cellstr for the
@@ -59,6 +60,7 @@ b.perSeed     = cfg.Patch.perSeed;
 b.seedTolerance  = cfg.Patch.seedTolerance;
 b.balanceByImage = cfg.Patch.balanceByImage;
 b.encoderDepth = cfg.Net.encoderDepth;
+b.encoder     = char(cfg.Net.encoder);
 b.epochsCv    = cfg.Net.epochsCv;
 b.lrMin       = cfg.Net.lrMin;
 b.miniBatch   = cfg.Net.miniBatch;

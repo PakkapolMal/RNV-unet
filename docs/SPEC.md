@@ -4,7 +4,7 @@ description: The working specification of the current pipeline — architecture,
 kind: specification
 status: current
 dataset: DRAC22 + TUH (69 images, standardized datasets/)
-updated: 2026-09-30
+updated: 2026-11-11
 ---
 
 # RNV Segmentation from Localization Points — Specification
@@ -185,14 +185,14 @@ precisely because this is silent when wrong.
 
 ### 4. U-Net → probability map `P` — `05_prob.png`
 
-**Does:** `unet([512 512 C+1], 2, EncoderDepth=4)`, softmax over {background, RNV}; `P` is
-the foreground channel. Per-seed patches are predicted in batches of `inferBatch`, then
+**Does:** an ImageNet-pretrained EfficientNet-B3 U-Net with `C+1` input channels (see
+[Network](#network)), softmax over {background, RNV}; `P` is the foreground channel. Per-seed patches are predicted in batches of `inferBatch`, then
 stitched with a raised-cosine window so overlapping seeds leave no seams. Regions no seed
 reaches stay `P = 0` by design.
 
 **Matters most.** Every large gain in this project came from improving `P` — unclustered
-seeds, the 512 px patch, `perSeed` 1 → 4 — and every post-processing lever was worth an order
-of magnitude less. The remaining large-lesion misses are low `P` *inside* the patch, not
+seeds, the 512 px patch, `perSeed` 1 → 4, the pretrained encoder recipe — and every
+post-processing lever was worth an order of magnitude less. The remaining large-lesion misses are low `P` *inside* the patch, not
 lesions outside it: the lever is training, not geometry
 ([results/2026-09-17-refine.md](results/2026-09-17-refine.md), step 5).
 
@@ -330,41 +330,53 @@ would pin a seed-rich image to the same subset in CSV order for the whole run.
 
 ### Network
 
-`unet([512 512 2], 2, EncoderDepth=4)`, loss `1 - generalizedDice`, Adam with L2 1e-4 on
-weights, minibatch 2. The adopted networks are trained by the PyTorch trainer
-(`colab/rnvtorch.py`, `cfg.Net.trainer = "pytorch"`):
+The adopted networks are trained by the PyTorch trainer (`colab/rnvtorch.py`,
+`cfg.Net.trainer = "pytorch"`), with the recipe in `cfg.Net`, which reaches it through
+`run_export`'s bundle:
 
 | parameter | value | why |
 |---|---|---|
+| network | `smp.Unet(Net.encoder)`, ImageNet weights, 2 input channels (intensity + seed heat-map), standardised per channel | with the two rows below, **+0.087 IoU** |
+| `Net.encoder` | **`"efficientnet-b3"`** | |
+| loss | **CE + (1 − soft Dice of the foreground pooled over the batch)**, equal weights | |
+| augmentation | ±32 px jitter, flips, `rot90`, then affine p 0.75 (rotation ±15°, scale 0.9–1.1, shear ±5°) and CLAHE p 0.5 on intensity (clip 2.0, 128 px tiles) | |
+| `Net.miniBatch` | **8** | the encoder's BatchNorm needs more than 2 |
+| `Net.learnRate` → `Net.lrMin` | **1e-4 → 1e-6, cosine**, stepped per epoch | |
+| precision | bf16 autocast in training, fp32 at inference | |
 | `Net.epochsCv` | **40** | the loss still falls at epoch 20, and still slightly at 40 |
-| `Net.learnRate` → `Net.lrMin` | **1e-3 → 1e-5, cosine**, stepped per epoch | |
 | output network | **the last epoch** | best-validation picked on 2 images' noise |
 | inner validation | **none**: the 2 inner images train | selection cost training data |
+| `Net.inferBatch` | **4** | Inference only: how many seed patches go through the network at once. It changes speed and GPU memory, never the result. Bounded because an image can carry 113 seeds. |
 
-Together these four are worth **+0.025 IoU** over 20 epochs at a constant rate with
-best-validation output: 69 images, 5-fold CV, both CIs above 0
-([results/2026-11-07-train-budget.md](results/2026-11-07-train-budget.md)). They were tested as
-one bundle, so which change carries the gain is unknown. The gain comes from a more decisive
-`P`, which cuts spill and fills under-coverage
-([results/2026-11-10-train-budget-pmaps.md](results/2026-11-10-train-budget-pmaps.md)).
+**The network, loss and augmentation** were adopted together and are worth **+0.087 IoU**
+(CI [+0.056, +0.118]; 69 images, 5-fold CV, trained once). Precision rose more than recall
+(+0.075 against +0.039): spill images fell from ×2.20 to ×1.17 of GT, under-covered ones rose
+from ×0.52 to ×0.86 ([results/2026-11-11-paper-recipe.md](results/2026-11-11-paper-recipe.md)).
+The three were tested as one bundle, so which carries the gain is unknown.
 
-**Stalls.** About 1 PyTorch fold training in 8 stalls: its loss sits near 0.40 from epoch 3.
-The stall rule, from training loss only, catches it before scoring: a fold whose last-five-epoch
-mean loss exceeds 0.35 is retrained once with the next `--rng`, and that retrain is used
-whatever it scores ([briefs/train-budget.md](briefs/train-budget.md)).
+**The schedule** (40 epochs, cosine, last epoch, no inner validation) was adopted before them,
+on the replica U-Net: **+0.025 IoU** over 20 epochs at a constant rate with best-validation
+output ([results/2026-11-07-train-budget.md](results/2026-11-07-train-budget.md)). It worked by
+making `P` more decisive ([results/2026-11-10-train-budget-pmaps.md](results/2026-11-10-train-budget-pmaps.md)).
 
-The MATLAB trainer (`cnngvf.trainNet`) still runs the old recipe: 30 epochs (20 under
-`run_cv`), constant rate, `OutputNetwork="best-validation"`. Only the frozen arms
-(`cfg.Net.trainer = "matlab"`) use it. For the current configuration, `trainNet` and `run_cv`
-refuse.
+**Stalls.** A stalled fold's training loss plateaus early, far above the others'. The stall
+rule reads training loss only, before scoring: a fold whose last-five-epoch mean loss exceeds
+**1.25 × the median** of the five folds' is retrained once with the next `--rng`, and that
+retrain is used whatever it scores. The rule is relative because the absolute loss depends on
+the loss function. Under the replica recipe 2 of 16 fold trainings stalled; under this one, 0
+of 5 ([results/2026-11-07-train-budget.md](results/2026-11-07-train-budget.md),
+[results/2026-11-11-paper-recipe.md](results/2026-11-11-paper-recipe.md)).
 
-| parameter | value | why |
-|---|---|---|
-| `Net.miniBatch` | **2** | 4 died out of memory at iteration 0 on an 8 GB GPU. Validation follows `MiniBatchSize` — `trainingOptions` has no `ValidationMiniBatchSize` for `adam`. |
-| `Net.inferBatch` | **4** | Inference only. Each seed gets one patch, and `inferBatch` is how many of those patches go through `predict` at once. It changes speed and GPU memory, never the result. Bounded because an image can carry 113 seeds, which cannot all go through at once. The training-side counterpart is `Net.miniBatch`; `perSeed` and `inferBatch` both being 4 is a coincidence. |
+**The replica U-Net stays in the trainer as a test fixture.** `rnvtorch.UNet` and
+`generalized_dice` port MATLAB's `unet([512 512 2], 2, EncoderDepth=4)` and its loss, and
+`test_parity.py` checks them against MATLAB's fold networks, which also checks the shared patch
+code. No current network is that U-Net.
 
-Generalized Dice, not cross-entropy: RNV is a small foreground fraction, and its
-inverse-square-volume class weighting is what stops the network collapsing to all-background.
+**The MATLAB trainer** (`cnngvf.trainNet`) runs the frozen arms' recipe: the replica U-Net,
+`1 − generalizedDice`, Adam 1e-3 with L2 1e-4 on weights, minibatch 2 (4 died out of memory at
+iteration 0 on an 8 GB GPU), 30 epochs (20 under `run_cv`), constant rate,
+`OutputNetwork="best-validation"`. `cnngvf.arm` sets its minibatch and rate. For the current
+configuration, `trainNet` and `run_cv` refuse.
 
 `cnngvf.trainNet` calls `gpuDevice(1)` first so a stale allocation cannot starve the run, and
 archives any existing network with a timestamp before saving.
@@ -417,18 +429,22 @@ unchanged. The port matches MATLAB to within 0.005 IoU on the 69 images, 5-fold 
 ([results/2026-11-05-colab-parity-cv.md](results/2026-11-05-colab-parity-cv.md)).
 
 **The adopted fold networks are PyTorch, and MATLAB does not load them.** Their `P` is the
-cache at `<Output>/cv/probcache`, copied from the run in `<Output>/colab_budget/`. The MATLAB CV
-output it replaced is in `result/archive/cv_matlab_until_2026-11-10/`. `run_cache` is how this
-configuration is scored, and `run_cv` refuses it.
+cache at `<Output>/cv/probcache`, copied from the run in `<Output>/colab_bcedice/`. The caches
+it replaced stay where they were made: `<Output>/colab_budget/` (the 2026-11-07 schedule on the
+replica U-Net) and `result/archive/cv_matlab_until_2026-11-10/` (MATLAB). `run_cache` is how
+this configuration is scored, and `run_cv` refuses it.
 
 **`run_batch` and `run_steps` still load the MATLAB full-data network**
-(`models/rnvNet_DRACTUH_unclustered.mat`, old recipe, 30 epochs). Their masks and steps
-therefore show the pre-adoption network, not the adopted one. No full-data network has been
-trained with the adopted recipe. This was decided on 2026-11-10.
+(`models/rnvNet_DRACTUH_unclustered.mat`, the frozen arms' recipe, 30 epochs). Their masks and
+steps therefore show a network two adoptions old, not the adopted one. No full-data network has
+been trained with the adopted recipe, and MATLAB cannot load an EfficientNet-B3 U-Net written
+back from PyTorch the way it loaded the replica. Showing the adopted network there needs `P`
+written by Python, or an ONNX import; not decided.
 
-The two parity runs, `cnn/result/DRACTUH_unclustered/colab_baseline/parity_rng0` and
-`parity_rng1`, are the baseline every trained arm is compared with. Their `P` caches are not
-in git; do not delete them.
+**The baseline for a new trained arm is the reference run** (`colab_bcedice/`, one run), judged
+by the margin in Reporting rule 7. The two parity runs,
+`cnn/result/DRACTUH_unclustered/colab_baseline/parity_rng0` and `parity_rng1`, are the
+replica U-Net's noise-floor measurement. Their `P` caches are not in git; do not delete them.
 
 **MATLAB R2026a.** Needs Image Processing, Deep Learning, Computer Vision and Parallel
 Computing. R2025b on this machine has Image Processing only and fails immediately with a
@@ -522,8 +538,9 @@ compare paired image-by-image; arms over different domains do not.
 
 `gpuDevice` enumerates CUDA devices only, so an onboard Intel GPU never appears; `cfg.GpuName`
 is printed by every runner so the device is on the record. At patch 512 an 8 GB card has little
-headroom — `miniBatch` 4 died out of memory at iteration 0, so it is 2, and `trainNet` calls
-`gpuDevice(1)` first so a stale allocation cannot starve the run. No `parfor`: several workers
+headroom for the MATLAB trainer — `miniBatch` 4 died out of memory at iteration 0, so the frozen
+arms use 2 — and `trainNet` calls `gpuDevice(1)` first so a stale allocation cannot starve the
+run. The PyTorch trainer fits minibatch 8 in bf16 on the same card. No `parfor`: several workers
 contending for one laptop GPU is slower than serial.
 
 ## Reporting rules
@@ -567,16 +584,16 @@ contending for one laptop GPU is slower than serial.
   so fragments belong to their lesions. Blocking every cross-component triangle repairs the
   guard but costs 0.0028 IoU
   ([results/2026-10-01-seed-hull-claim.md](results/2026-10-01-seed-hull-claim.md)).
-- **Precision is the weak side**, about 0.13 below recall. The failure mode is
-  over-segmentation.
+- **Precision and recall are now level** (0.742 and 0.735, 69 images, 5-fold CV). Under the
+  replica U-Net precision trailed recall by about 0.13, and spill was the failure mode; the
+  adopted recipe nearly halved the spill
+  ([results/2026-11-11-paper-recipe.md](results/2026-11-11-paper-recipe.md)).
 - **The large-lesion gap is model-side, not patch coverage.** 98% of the largest-quintile ground
   truth lies inside a 512 px patch, and 76% of its missed pixels have `P < 0.20`.
-- **A fold can stall.** One of ten PyTorch fold trainings plateaued at training loss ~0.39
-  where the rest reached 0.28–0.31, and scored 0.067 below MATLAB on that fold
-  ([results/2026-11-05-colab-parity-cv.md](results/2026-11-05-colab-parity-cv.md)). Check
-  every arm's `log.csv` before reading its score.
-- **30 epochs may not be enough.** The `perSeed = 4` validation curve was still descending at
-  epoch 29. Training longer is the cheapest untested lever.
+- **A fold can stall.** Under the replica U-Net, 2 of 16 PyTorch fold trainings plateaued far
+  above the rest; one scored 0.067 below MATLAB on its fold
+  ([results/2026-11-05-colab-parity-cv.md](results/2026-11-05-colab-parity-cv.md)). None of 5
+  stalled under the adopted recipe. Check every arm's `log.csv` before reading its score.
 - **Is `perSeed = 8` better still?** 4 restored the other arms' setting; it is not a measured
   optimum, and the 1 → 4 step was worth +0.141.
 - **Stray localization points are confident, not weak.** 29 of 32 fire with `P ≈ 1`, so no
@@ -588,12 +605,14 @@ contending for one laptop GPU is slower than serial.
   0.0039 IoU (CI [−0.0081, −0.0004], 69 images, 5-fold CV), and it loses on both PyTorch
   baseline caches too. The curve is flat over 0.45–0.60 and peaks at 0.5. The precision gap
   is not a threshold problem ([results/2026-11-05-tau-crossfit.md](results/2026-11-05-tau-crossfit.md)).
-  Re-run it if a loss or training change is adopted.
+  **Measured on the replica U-Net's `P`.** The adopted recipe changed the loss, so `tau` and
+  `relaxFloor` are due for a re-fit on its `P`.
 - **`299.png` and `445.png` have broken detector points** (445's is a copy of 443's) and
   score ≈ 0. Re-localize them in the upstream stage; see [Seed tolerance](#seed-tolerance).
 - **The balanced-sampling gain is unverified.** Every cross-validated arm used it.
-- **Cross-validation costs ~18 h** at `perSeed = 4` / 20 epochs. `cfg.CV.skipTrain` makes any
-  post-`P` change inference-only.
+- **A trained CV costs about 5 h** on a Colab L4 (73–85 s per epoch, 40 epochs, 5 folds), and
+  about 18 h for a frozen arm in MATLAB. Any post-`P` change scores off the cache with
+  `run_cache` instead.
 - **68 ground-truth images** is still thin for a U-Net;
   [briefs/design-study.md](briefs/design-study.md) suggests pretraining on ROSE or OCTA-500.
 - **A seedless `P` (tiles over the whole frame) failed its pilot gate**; the likely cause is

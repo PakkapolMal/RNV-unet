@@ -1,7 +1,8 @@
 # RNV-Claude
 
 Segments retinal neovascularization (RNV) lesions in OCTA en-face images, starting from the
-localization points an upstream detector emits. A seed-conditioned U-Net predicts a
+localization points an upstream detector emits. A seed-conditioned U-Net (ImageNet-pretrained
+EfficientNet-B3 encoder, trained in PyTorch) predicts a
 probability map `P`; the mask is `P > 0.5`, a relaxed threshold around seeds `P` left
 empty, seed claiming, and a seed hull that fills between nearby seeds. MATLAB R2026a.
 
@@ -9,22 +10,24 @@ empty, seed claiming, and a seed hull that fills between nearby seeds. MATLAB R2
 
 Out-of-sample, 5-fold cross-validation, **69 images** (DRAC22 42 + TUH 27) from the
 standardized `datasets/` (not included, see Data), every image scored, whole-image scoring, current
-configuration (`cnngvf.defaults()`: networks trained by the PyTorch trainer for 40 epochs with
-cosine decay and last-epoch output; seed hull link 128 px, relax floor 0.20):
+configuration (`cnngvf.defaults()`: a pretrained EfficientNet-B3 U-Net trained by the PyTorch
+trainer with CE + Dice loss and affine + CLAHE augmentation, 40 epochs with cosine decay and
+last-epoch output; seed hull link 128 px, relax floor 0.20):
 
 | | n | mean IoU | median | F1 | precision | recall |
 |---|---|---|---|---|---|---|
-| **all images** | 69 | **0.5256** | 0.5527 | 0.6545 | 0.6672 | 0.6955 |
-| DRAC22 | 42 | 0.4670 | | 0.5915 | 0.6286 | 0.6054 |
-| TUH | 27 | 0.6168 | | 0.7525 | 0.7274 | 0.8356 |
+| **all images** | 69 | **0.6125** | 0.6494 | 0.7273 | 0.7418 | 0.7348 |
+| DRAC22 | 42 | 0.5404 | | 0.6585 | 0.6960 | 0.6471 |
+| TUH | 27 | 0.7245 | | 0.8343 | 0.8131 | 0.8713 |
 
-Post-processing settings were fixed on the earlier 68-image data. The training recipe passed a
-pre-registered gate against two 20-epoch retrains (+0.025 IoU, both CIs above 0); it was
-trained once, so the figure carries the training noise floor of about ±0.015. Six DRAC22
-images have no usable localization point and score 0; the mean over the other 63 (0.5729) is
-a labelled secondary figure only. Previous: 0.5047 (MATLAB trainer). Source:
-[docs/results/2026-11-07-train-budget.md](docs/results/2026-11-07-train-budget.md); per
-image: [docs/results/reference/2026-11-07-train-budget-69.csv](docs/results/reference/2026-11-07-train-budget-69.csv),
+Post-processing settings were fixed on the earlier 68-image data and the replica U-Net's `P`;
+re-fitting them on this `P` is next. The network recipe passed a pre-registered margin gate
+against the previous configuration (+0.087 IoU, CI [+0.056, +0.118]); it was trained once,
+so the figure carries the training noise floor of about ±0.015. Six DRAC22 images have no
+usable localization point and score 0; the mean over the other 63 (0.6668) is a labelled
+secondary figure only. Previous: 0.5256 (replica U-Net, 2026-11-07), 0.5047 (MATLAB trainer).
+Source: [docs/results/2026-11-11-paper-recipe.md](docs/results/2026-11-11-paper-recipe.md); per
+image: [docs/results/reference/2026-11-11-paper-recipe-69.csv](docs/results/reference/2026-11-11-paper-recipe-69.csv),
 which `run_cache` checks against. This table is the only place the current number is quoted;
 update it here when it changes.
 
@@ -34,7 +37,7 @@ update it here when it changes.
 cd cnn
 test_cnngvf          % self-check
 run_cache            % score the cached CV P; reproduces the table above in seconds
-run_batch            % segment every image with the MATLAB full-data network (pre-adoption)
+run_batch            % segment every image with the MATLAB full-data network (two adoptions old)
 run_steps("458.png") % every intermediate stage of one image, same network
 run_export           % bundle for the PyTorch trainer; training runs on Colab (colab/train.ipynb)
 ```
@@ -99,7 +102,7 @@ MIT, see [LICENSE](LICENSE). The license covers the code and documents here, not
 | 2026-11-05 overlay (record not public) | do false positives concentrate on the TUH crosshair? (27 TUH images, 5-fold CV) | no: FP rate 0.80× elsewhere; an oracle fix gains at most +0.0019 TUH IoU; the overlay stays in |
 | [2026-11-07 budget](docs/results/2026-11-07-train-budget.md) | train 40 epochs, cosine LR, last epoch, inner images in training? (69 images, 5-fold CV, PyTorch) | **adopted: 0.5256**, +0.025 over each 20-epoch baseline, CIs [+0.008, +0.044] and [+0.008, +0.041]; one fold stalled and was retrained per the stall rule |
 | [2026-11-10 budget P](docs/results/2026-11-10-train-budget-pmaps.md) | why does the budget help? (69 images, 5-fold CV `P`, post hoc) | `P` is more decisive (undecided area −0.086 on 61/66 images); gain sits on spill (+0.061) and under-coverage (+0.052); deep misses (`P` < 0.2 in GT) untouched |
-| [2026-11-11 recipe](docs/results/2026-11-11-paper-recipe.md) | pretrained EfficientNet-B3 U-Net, CE + Dice, affine + CLAHE, one bundle? (69 images, 5-fold CV, PyTorch) | **passes its margin gate: 0.6125**, +0.087 CI [+0.056, +0.118]; spill ×2.20 → ×1.17, under-coverage ×0.52 → ×0.86; not yet adopted |
+| [2026-11-11 recipe](docs/results/2026-11-11-paper-recipe.md) | pretrained EfficientNet-B3 U-Net, CE + Dice, affine + CLAHE, one bundle? (69 images, 5-fold CV, PyTorch) | **adopted: 0.6125**, +0.087 CI [+0.056, +0.118] by a margin gate; spill ×2.20 → ×1.17, under-coverage ×0.52 → ×0.86 |
 
 ## History
 
