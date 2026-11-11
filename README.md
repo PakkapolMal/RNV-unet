@@ -42,7 +42,7 @@ run_steps("458.png") % every intermediate stage of one image, same network
 run_export           % bundle for the PyTorch trainer; training runs on Colab (colab/train.ipynb)
 ```
 
-Datasets: the standardized, read-only `datasets/` (69 images; see Data and CLAUDE.md).
+Datasets: the standardized, read-only `datasets/` (69 images; see Data).
 Details: [cnn/README.md](cnn/README.md).
 
 ## Data
@@ -65,7 +65,6 @@ MIT, see [LICENSE](LICENSE). The license covers the code and documents here, not
 
 | path | what it is |
 |---|---|
-| [`CLAUDE.md`](CLAUDE.md) | rules for coding agents: which docs to update, what to verify, what to ask first |
 | [`cnn/`](cnn/) | the pipeline: package `+cnngvf`, runners, self-check |
 | [`colab/`](colab/) | the PyTorch trainer the current configuration trains with, on Google Colab |
 | [`docs/SPEC.md`](docs/SPEC.md) | how the current pipeline works and why — current state only |
