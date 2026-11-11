@@ -5,10 +5,14 @@ kind: implementation-brief
 audience: Claude Code
 target: RNV-Claude/cnn, MATLAB R2026a
 depends-on: results/2026-11-11-paper-recipe.md, results/2026-11-05-tau-crossfit.md, results/2026-09-30-relax-grid.md, results/2026-09-16-reduce.md
-status: pre-registered 2026-11-11, not yet run
+status: executed 2026-11-11
 ---
 
 # tau × relaxFloor, Re-fitted on the Adopted Recipe's P
+
+> **Executed brief.** Kept as written. Outcome: gates 1 and 2 failed. Cross-fitted ΔIoU is
+> +0.0004, CI [−0.0027, +0.0033], and three of five folds agree. Both thresholds stay:
+> [../results/2026-11-11-tau-floor-refit.md](../results/2026-11-11-tau-floor-refit.md).
 
 ## Why
 

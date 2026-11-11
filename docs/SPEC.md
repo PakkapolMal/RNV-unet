@@ -385,9 +385,9 @@ archives any existing network with a timestamp before saving.
 
 | parameter | value | why |
 |---|---|---|
-| `Post.tau` | **0.5** | pre-registered decision boundary; cross-fitting 0.40–0.70 loses 0.004 IoU ([results](results/2026-11-05-tau-crossfit.md)) |
+| `Post.tau` | **0.5** | pre-registered decision boundary; cross-fitting 0.40–0.70 loses 0.004 IoU ([results](results/2026-11-05-tau-crossfit.md)); re-fitted with `relaxFloor` on the adopted recipe's `P`: +0.0004, CI including 0 ([results](results/2026-11-11-tau-floor-refit.md)) |
 | `Post.fallbackMode` | **`"relax"`** | shape from `P` for seeds the threshold missed; `"disk"` on the frozen arms |
-| `Post.relaxFloor` | **0.20** | fixed after the 2026-09-16 sweep; re-tuning it jointly with the window loses 0.0098 cross-fitted ([results](results/2026-09-30-relax-grid.md)) |
+| `Post.relaxFloor` | **0.20** | fixed after the 2026-09-16 sweep; re-tuning it jointly with the window loses 0.0098 cross-fitted ([results](results/2026-09-30-relax-grid.md)), and jointly with `tau` on the adopted `P` gains nothing ([results](results/2026-11-11-tau-floor-refit.md)) |
 | `Post.relaxWindow` | 128 px | stops a low floor flooding a broad plateau; the best of 64 / 128 / 256 / 512 at every floor 0.10–0.25 ([results](results/2026-09-30-relax-grid.md)) |
 | `Post.seedRadius` | 15 px | the disk when relax finds nothing claimable; near-inert under relax: r 0–30 all within 0.0003, 9 images change ([results](results/2026-10-02-minarea-disk.md)) |
 | `Post.MorphElement` | `strel('disk', 2)` | `imclose` before `imfill` |
@@ -605,8 +605,9 @@ contending for one laptop GPU is slower than serial.
   0.0039 IoU (CI [−0.0081, −0.0004], 69 images, 5-fold CV), and it loses on both PyTorch
   baseline caches too. The curve is flat over 0.45–0.60 and peaks at 0.5. The precision gap
   is not a threshold problem ([results/2026-11-05-tau-crossfit.md](results/2026-11-05-tau-crossfit.md)).
-  **Measured on the replica U-Net's `P`.** The adopted recipe changed the loss, so `tau` and
-  `relaxFloor` are due for a re-fit on its `P`.
+  **Re-fitted on the adopted recipe's `P`** jointly with `relaxFloor` (7 × 5 cells): +0.0004
+  cross-fitted, CI [−0.003, +0.003], so both stay. Lower is better on both axes in-sample,
+  by at most 0.004 ([results/2026-11-11-tau-floor-refit.md](results/2026-11-11-tau-floor-refit.md)).
 - **`299.png` and `445.png` have broken detector points** (445's is a copy of 443's) and
   score ≈ 0. Re-localize them in the upstream stage; see [Seed tolerance](#seed-tolerance).
 - **The balanced-sampling gain is unverified.** Every cross-validated arm used it.
