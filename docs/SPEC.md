@@ -394,6 +394,7 @@ archives any existing network with a timestamp before saving.
 | `Post.MinArea` | 500 px | components below it cannot be claimed; must stay under the smallest component the network fires on (~700 px: `421`, `217`). Cross-fitted over 100–1000 and jointly with `seedRadius`: every fold picks 500 ([results](results/2026-10-02-minarea-disk.md)) |
 | `Post.ClaimRule` | **`"boundary"`** | same rule as training labels; `"centroid"` on the frozen arms |
 | `Post.hullLink` | **128 px** | seed hull pairwise bound, cross-fitted over 64–256; 0 turns it off, as on the frozen arms ([results](results/2026-09-30-seed-hull-d.md)) |
+| `Post.noPointCache`, `noPointTau`, `noPointKeep` | **`""`** (off), 0.5, `"all"` | **experiment, branch `exp/seedless-fallback`:** an image with zero points takes `cnngvf.noPointMask` of a seedless network's `P` from that cache ([briefs/seedless-fallback.md](briefs/seedless-fallback.md)). Off, such an image predicts nothing |
 
 ## Running it
 

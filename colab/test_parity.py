@@ -2,12 +2,15 @@
 
     python colab/test_parity.py <bundle> [<cache_out>]
     python colab/test_parity.py stage3 <bundle> <scratch_run_root> [workers]
+    python colab/test_parity.py stage3-seedless <bundle> <scratch_run_root> [workers]
 
 Stage 1 checks the port against fixtures run_export wrote from the MATLAB code.
 Stage 2 runs every fold's MATLAB weights through the PyTorch network, checks one
 patch and one whole-image P against MATLAB's CPU, and writes P to <cache_out>
 for run_cache to score. Stage 3 checks the augmentation's warp moves the
 heat-map with the image, then smoke-runs the trainer on one fold.
+stage3-seedless does the same for the seedless experiment
+(docs/briefs/seedless-fallback.md).
 """
 import sys
 from pathlib import Path
@@ -145,7 +148,55 @@ def stage3(root, run_root, workers):
           f"one 5-fold CV of {epochs} epochs ~ {secs * epochs * 5 / 3600:.1f} h")
 
 
+def check_frame_shift():
+    """The seedless frame warp translates by at most 5 % and the label with it;
+    a single-channel frame keeps its channel axis."""
+    X = np.random.default_rng(0).random((1024, 1024, 1)).astype(np.float32)
+    fg = np.zeros((1024, 1024), bool)
+    fg[400:500, 400:500] = True
+    for end, want in ((1.0, 451), (0.0, 349)):     # the two extremes of the shift draw
+        draws = iter([0.0, 0.5, 0.5, 0.5, end, end, 0.0])   # affine on, rot 0, scale 1, shear 0, CLAHE on
+        Xw, fgw = rt.affine_clahe(X, fg, lambda: next(draws), tiles=8, shift=0.05)
+        r, c = np.nonzero(fgw)
+        assert Xw.shape == X.shape, f"frame shape {Xw.shape}"
+        assert abs(r.min() - want) <= 1 and abs(c.min() - want) <= 1, f"label at {r.min()}, {c.min()}, want {want}"
+    print("  frame shift    ok (+-5 % = +-51 px, label follows, channel axis kept)")
+
+
+def stage3_seedless(root, run_root, workers):
+    """Fold 1 of the seedless network: 1 epoch, stop, resume to epoch 2, write P."""
+    import csv
+    cfg, images, folds = rt.load_bundle(root)
+    fold = folds[0]
+    check_frame_shift()
+    assert rt.train_fold(root, run_root, 1, 0, epochs=2, stop_after=1, workers=workers, seedless=True) is None
+    assert rt.train_fold(root, run_root, 1, 0, epochs=2, workers=workers, seedless=True) is not None
+    log = list(csv.DictReader(open(Path(run_root) / "fold1" / "log.csv")))
+    assert [int(r["epoch"]) for r in log] == [1, 2], f"epochs logged {[r['epoch'] for r in log]}"
+    ck = torch.load(Path(run_root) / "fold1" / "ckpt.pt", weights_only=False)
+    n_train = len(images) - len(fold["test"])
+    assert len(ck["rows"]) == n_train * rt.SEEDLESS["copies"], f"{len(ck['rows'])} frames/epoch"
+    assert ck["opts"].get("seedless"), "checkpoint is not the seedless network's"
+    assert float(log[1]["train_loss"]) < float(log[0]["train_loss"]), "training loss did not fall"
+    cache = list((Path(run_root) / "probcache").glob("*.mat"))
+    assert len(cache) == len(fold["test"]), f"{len(cache)} P files for {len(fold['test'])} held-out images"
+    for c in cache:
+        P = sio.loadmat(c)["P"]
+        assert P.shape == (1024, 1024) and np.isfinite(P).all() and 0 <= P.min() and P.max() <= 1, c.name
+    secs = np.mean([float(r["seconds"]) for r in log])
+    epochs = rt.SEEDLESS["epochs"]
+    print(f"  smoke          ok (resume, {len(ck['rows'])} frames/epoch, loss {float(log[0]['train_loss']):.4f} -> "
+          f"{float(log[1]['train_loss']):.4f}, P for {len(cache)} images)")
+    print(f"  {secs:.0f} s/epoch on {torch.cuda.get_device_name() if torch.cuda.is_available() else 'cpu'}: "
+          f"one 5-fold CV of {epochs} epochs ~ {secs * epochs * 5 / 3600:.1f} h")
+
+
 if __name__ == "__main__":
+    if sys.argv[1] == "stage3-seedless":
+        print("stage3-seedless: one-fold smoke")
+        stage3_seedless(sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 0)
+        print("All checks passed.")
+        sys.exit()
     if sys.argv[1] == "stage3":
         print("stage3: one-fold smoke")
         stage3(sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 0)

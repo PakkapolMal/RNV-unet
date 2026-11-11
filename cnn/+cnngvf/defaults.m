@@ -187,6 +187,13 @@ cfg.Post.ClaimRule = "boundary";
 % 64-256 and adopted over its precision guard; docs/results/2026-09-30-seed-hull-d.md.
 cfg.Post.hullLink = 128;
 
+% EXPERIMENT (docs/briefs/seedless-fallback.md): an image with zero
+% localization points takes cnngvf.noPointMask of its seedless P, read from
+% noPointCache; "" = off, and such an image predicts nothing.
+cfg.Post.noPointCache = "";
+cfg.Post.noPointTau   = 0.5;
+cfg.Post.noPointKeep  = "all";
+
 % --- Hardware --------------------------------------------------------------
 % gpuDevice sees CUDA devices only; an integrated GPU busy in Task Manager is
 % desktop rendering, not this pipeline. GpuName goes into every run record.

@@ -27,6 +27,7 @@ The folder was `CNN+GVF/` until 2026-09-25, when the GVF + level-set stages were
   seedDisks.m           the disk, relax's floor
   seedMasks.m           split a mask into the component each seed claims
   seedHull.m            fill between nearby seeds after claiming (inter-frond gaps)
+  noPointMask.m         experiment: an image with no points, from seedless P (threshold, top-1)
   segmentImage.m        all of the above, one image
   probCache.m           per-fold P cache with a leakage guard
   cvFolds.m             deterministic area-stratified folds over the domain
@@ -37,9 +38,10 @@ run_batch.m             segment + score every image (mostly in-sample)
 run_cv.m                k-fold train + score in MATLAB (frozen arms only)
 run_eval.m              re-score cached masks, no GPU
 run_cache.m             score cached cross-validated P, check against the reference
+run_seedless_fit.m      experiment: cross-fit the no-point rule on the 1-3-point images
 run_steps.m             one image, every intermediate written out
 run_export.m            bundle for the PyTorch trainer in ../colab/ (data, folds, weights, fixtures)
-test_cnngvf.m           self-check, 9 checks
+test_cnngvf.m           self-check, 10 checks
 ```
 
 ## Requirements
@@ -112,6 +114,11 @@ A bundle exported before the recipe was in `cfg.Net` refuses; re-run `run_export
 checkpoint refuses to resume under different settings.
 
 Before scoring a run, apply the stall rule to every `fold*/log.csv` (SPEC, Network).
+
+Experiment on branch `exp/seedless-fallback`: `train-seedless` (same options) trains a
+whole-frame network with no seed input, and `test_parity.py stage3-seedless` smokes it.
+Score its cache with `run_seedless_fit("<downloaded probcache>")`
+([../docs/briefs/seedless-fallback.md](../docs/briefs/seedless-fallback.md)).
 
 `train` checkpoints every epoch to `<run_root>/fold<k>/` and resumes there when rerun. When it
 finishes, it writes the fold's held-out `P` to `<run_root>/probcache/`. Score a cache with

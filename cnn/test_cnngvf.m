@@ -16,6 +16,7 @@ testPatchGeometry(cfg);
 testMaskFromProb(cfg);
 testSeedComponents(cfg);
 testSeedHull(cfg);
+testNoPointMask(cfg);
 testProbCache(cfg);
 testRunCache(cfg);
 testDomain(cfg);
@@ -217,6 +218,25 @@ far = seeds; far(3, :) = [100 + d/2, 100 + 1.2*d];   % one edge longer than d
 assert(isequal(m2, mask), 'a triangle with an edge beyond hullLink was filled');
 
 fprintf('  seed hull                 ok (triangle, long edge, lone seed, off)\n');
+end
+
+
+function testNoPointMask(cfg)
+% With no seeds to claim, top-1 must keep the blob with the most P mass, not
+% the largest or the brightest, and MinArea must drop a speck either way.
+P = zeros(300);
+P(21:60, 21:60)     = 0.9;    % 1 600 px at 0.9: mass 1 440
+P(101:180, 101:180) = 0.6;    % 6 400 px at 0.6: mass 3 840, the strongest
+P(241:250, 241:250) = 1.0;    % 100 px: below MinArea
+cfg.Post.noPointTau = 0.5;
+cfg.Post.noPointKeep = "all";
+m = cnngvf.noPointMask(P, cfg);
+assert(nnz(m) == 1600 + 6400, 'keep all: %d px, want 8000', nnz(m));
+cfg.Post.noPointKeep = "top1";
+m = cnngvf.noPointMask(P, cfg);
+assert(nnz(m) == 6400 && m(140, 140), 'top1 kept %d px, want the 6400 px blob', nnz(m));
+assert(~any(cnngvf.noPointMask(zeros(50), cfg), 'all'), 'empty P gave a mask');
+fprintf('  no-point mask             ok (all, top-1 by P mass, MinArea)\n');
 end
 
 
