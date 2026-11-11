@@ -547,6 +547,9 @@ contending for one laptop GPU is slower than serial.
    95 % CI half-width of about 0.015 IoU (69 images, 5-fold CV), so a smaller mean difference
    is not a result in either direction ([CONTEXT.md](CONTEXT.md), "Noise floor";
    [results/2026-11-05-colab-parity-cv.md](results/2026-11-05-colab-parity-cv.md)).
+   When only one run of the baseline exists, the margin replaces the second run: the paired
+   ΔIoU needs a CI lower bound above 0 **and** a mean of at least +0.015
+   ([results/2026-11-11-paper-recipe.md](results/2026-11-11-paper-recipe.md) first used it).
 
 ## Known limits and next steps
 

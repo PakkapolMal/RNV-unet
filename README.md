@@ -99,6 +99,7 @@ MIT, see [LICENSE](LICENSE). The license covers the code and documents here, not
 | 2026-11-05 overlay (record not public) | do false positives concentrate on the TUH crosshair? (27 TUH images, 5-fold CV) | no: FP rate 0.80× elsewhere; an oracle fix gains at most +0.0019 TUH IoU; the overlay stays in |
 | [2026-11-07 budget](docs/results/2026-11-07-train-budget.md) | train 40 epochs, cosine LR, last epoch, inner images in training? (69 images, 5-fold CV, PyTorch) | **adopted: 0.5256**, +0.025 over each 20-epoch baseline, CIs [+0.008, +0.044] and [+0.008, +0.041]; one fold stalled and was retrained per the stall rule |
 | [2026-11-10 budget P](docs/results/2026-11-10-train-budget-pmaps.md) | why does the budget help? (69 images, 5-fold CV `P`, post hoc) | `P` is more decisive (undecided area −0.086 on 61/66 images); gain sits on spill (+0.061) and under-coverage (+0.052); deep misses (`P` < 0.2 in GT) untouched |
+| [2026-11-11 recipe](docs/results/2026-11-11-paper-recipe.md) | pretrained EfficientNet-B3 U-Net, CE + Dice, affine + CLAHE, one bundle? (69 images, 5-fold CV, PyTorch) | **passes its margin gate: 0.6125**, +0.087 CI [+0.056, +0.118]; spill ×2.20 → ×1.17, under-coverage ×0.52 → ×0.86; not yet adopted |
 
 ## History
 
