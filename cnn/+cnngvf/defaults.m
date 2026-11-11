@@ -110,18 +110,20 @@ cfg.Net.encoderDepth = 4;
 % rnvtorch.py trains it, through run_export's bundle, and MATLAB refuses to
 % (cnngvf.trainNet, run_cv). Frozen arms set "matlab" (cnngvf.arm).
 cfg.Net.trainer      = "pytorch";
-% The adopted recipe, read by colab/rnvtorch.py: epochsCv epochs, learning rate
-% cosine-decayed from learnRate to lrMin, last epoch kept, no inner validation.
-% +0.025 IoU over 20 epochs at a constant rate with best-validation output;
-% docs/results/2026-11-07-train-budget.md.
+% The adopted recipe, read by colab/rnvtorch.py: an ImageNet-pretrained U-Net
+% with this encoder, CE + Dice, affine + CLAHE augmentation (+0.087 IoU,
+% docs/results/2026-11-11-paper-recipe.md); epochsCv epochs, learning rate
+% cosine-decayed from learnRate to lrMin, last epoch kept, no inner validation
+% (+0.025 IoU, docs/results/2026-11-07-train-budget.md). The frozen arms keep
+% the MATLAB recipe (cnngvf.arm).
+cfg.Net.encoder      = "efficientnet-b3";
 cfg.Net.epochsCv     = 40;
-cfg.Net.lrMin        = 1e-5;
+cfg.Net.lrMin        = 1e-6;
 cfg.Net.epochs       = 30;   % MATLAB trainer only (frozen arms); run_cv uses 20
-% 4 ran out of memory at iteration 0 on an 8 GB GPU. Validation follows
-% MiniBatchSize; trainingOptions has no ValidationMiniBatchSize for adam.
-cfg.Net.miniBatch    = 2;
+% 8: the encoder's BatchNorm needs more than 2 per batch.
+cfg.Net.miniBatch    = 8;
 cfg.Net.inferBatch   = 4;    % patches per predict() call at inference
-cfg.Net.learnRate    = 1e-3;
+cfg.Net.learnRate    = 1e-4;
 if batchStartupOptionUsed
     cfg.Net.plots = "none";
 else
@@ -153,7 +155,7 @@ cfg.CV.probCache = "";
 % The per-image record run_cache compares against: the adopted configuration's
 % cross-validated scores. A new adoption adds a new file here; old ones stay.
 cfg.CV.reference = fullfile(fileparts(mainDir), 'docs', 'results', 'reference', ...
-    '2026-11-07-train-budget-69.csv');
+    '2026-11-11-paper-recipe-69.csv');
 
 % --- Post-processing -------------------------------------------------------
 % P > tau -> seed fallback -> imclose -> imfill -> seedMasks. See

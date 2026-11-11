@@ -80,16 +80,22 @@ run_export                             % -> result/DRACTUH_unclustered/colab_bun
 
 ### PyTorch trainer
 
-`../colab/` ports patch sampling, the U-Net, the loss, training and `P` inference to PyTorch
-so long training can run on Google Colab. The current configuration trains there, with the
-recipe in `cfg.Net` (`epochsCv`, `learnRate`, `lrMin`) carried by the bundle; everything else
-stays here. Port and parity: [../docs/briefs/colab-parity.md](../docs/briefs/colab-parity.md).
-Recipe: [../docs/results/2026-11-07-train-budget.md](../docs/results/2026-11-07-train-budget.md).
+`../colab/` holds the PyTorch trainer: patch sampling, the network, the loss, training and `P`
+inference, so training can run on Google Colab. The current configuration trains there, with
+the recipe in `cfg.Net` (`encoder`, `epochsCv`, `learnRate`, `lrMin`, `miniBatch`) carried by
+the bundle; everything else stays here. The network is an ImageNet-pretrained U-Net from
+`segmentation_models_pytorch`. The trainer also keeps a port of MATLAB's U-Net, which
+`test_parity.py` checks against MATLAB's fold networks. Port and parity:
+[../docs/briefs/colab-parity.md](../docs/briefs/colab-parity.md). Recipe:
+[../docs/results/2026-11-11-paper-recipe.md](../docs/results/2026-11-11-paper-recipe.md) and
+[../docs/results/2026-11-07-train-budget.md](../docs/results/2026-11-07-train-budget.md).
 
 ```
-../colab/rnvtorch.py      bundle reader, seedPatch, sampler, UNet (+ MATLAB weight load), loss,
-                          train_fold (checkpoint + resume), inferProbMap, P-cache writer
-../colab/test_parity.py   stage 1 (fixtures), stage 2 (MATLAB weights -> P), stage 3 (one-fold smoke)
+../colab/rnvtorch.py      bundle reader, seedPatch, sampler, SmpNet (the trained network), CE + Dice
+                          loss, affine + CLAHE augmentation, train_fold (checkpoint + resume),
+                          inferProbMap, P-cache writer; UNet + generalizedDice (the MATLAB port)
+../colab/test_parity.py   stage 1 (fixtures), stage 2 (MATLAB weights -> P), stage 3 (augmentation
+                          check, one-fold smoke)
 ../colab/train.ipynb      Colab driver: mount Drive, copy the bundle, smoke, train one fold
 ```
 
@@ -99,15 +105,17 @@ python colab/test_parity.py stage3 cnn/result/DRACTUH_unclustered/colab_bundle <
 python colab/rnvtorch.py train cnn/result/DRACTUH_unclustered/colab_bundle <run_root> --fold 1 --rng 0
 ```
 
-`train` runs the bundle's recipe: `epochsCv` epochs, cosine from `learnRate` to `lrMin`, the
-last epoch as output, the inner images training. `--epochs` overrides the count (smoke runs).
+`train` runs the bundle's recipe: the `encoder` U-Net, `epochsCv` epochs, cosine from
+`learnRate` to `lrMin`, minibatch `miniBatch` in bf16, the last epoch as output, the inner
+images training. `--epochs` overrides the count (smoke runs).
 A bundle exported before the recipe was in `cfg.Net` refuses; re-run `run_export`. A
-checkpoint refuses to resume under different settings. Before scoring a run, apply the stall
-rule to every `fold*/log.csv` (SPEC, Network).
+checkpoint refuses to resume under different settings.
+
+Before scoring a run, apply the stall rule to every `fold*/log.csv` (SPEC, Network).
 
 `train` checkpoints every epoch to `<run_root>/fold<k>/` and resumes there when rerun. When it
 finishes, it writes the fold's held-out `P` to `<run_root>/probcache/`. Score a cache with
-`run_cache(cnngvf.defaults(), "<dir>")`. Needs Python 3.11, PyTorch with CUDA, NumPy and
+`run_cache(cnngvf.defaults(), "<dir>")`. Needs Python 3.11, PyTorch with CUDA, `segmentation-models-pytorch==0.5.0`, OpenCV, NumPy and
 SciPy. On Windows keep `--workers 0`, because worker processes would each copy the bundle.
 
 Every runner takes nothing (the current configuration), a frozen arm's name, or a `cfg`.

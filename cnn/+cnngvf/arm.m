@@ -53,6 +53,9 @@ cfg.Post.ClaimRule    = a.claimRule;
 cfg.Post.fallbackMode = "disk";
 cfg.Post.hullLink     = 0;       % the seed hull came after every frozen arm
 cfg.Net.trainer       = "matlab";  % trained and kept loading in MATLAB
+% The MATLAB recipe: 4 per batch ran out of memory at iteration 0 on an 8 GB GPU.
+cfg.Net.miniBatch     = 2;
+cfg.Net.learnRate     = 1e-3;
 
 cfg.CV.reference = "";   % frozen arms have no reference on master
 cfg.CV.ModelArm = a.cvModelArm;

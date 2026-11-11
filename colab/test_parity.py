@@ -6,7 +6,8 @@
 Stage 1 checks the port against fixtures run_export wrote from the MATLAB code.
 Stage 2 runs every fold's MATLAB weights through the PyTorch network, checks one
 patch and one whole-image P against MATLAB's CPU, and writes P to <cache_out>
-for run_cache to score. Stage 3 is a one-fold smoke run of the trainer.
+for run_cache to score. Stage 3 checks the augmentation's warp moves the
+heat-map with the image, then smoke-runs the trainer on one fold.
 """
 import sys
 from pathlib import Path
@@ -84,6 +85,24 @@ def stage2(cfg, images, folds, fx, cache_out, device):
             print(f"  fold {f}         P written for {len(fold['test'])} images; score <cache_out> with run_cache")
 
 
+def check_affine(cfg):
+    """affine_clahe's warp moves the heat-map peak to where the affine
+    maps the seed, and the label with it."""
+    p, sigma = int(cfg["patch"]), float(cfg["sigmaSeed"])
+    seed = np.array([p / 2 + 20, p / 2 - 30])          # (col, row), 1-based like seed_patch
+    X, _, _ = rt.seed_patch(np.zeros((p, p, 1), np.float32), seed, np.array([p / 2, p / 2]), p, sigma)
+    fg = np.zeros((p, p), bool)
+    fg[200:240, 300:340] = True
+    draws = iter([0.0, 1.0, 0.0, 1.0, 0.9])            # affine on, rot 15, scale 0.9, shear 5, CLAHE off
+    Xw, fgw = rt.affine_clahe(X, fg, lambda: next(draws))
+    M = rt.affine_matrix(p, 15, 0.9, 5)
+    want = M[:, :2] @ seed + M[:, 2]        # the patch starts at image row/col 0: index = coordinate
+    got = np.unravel_index(np.argmax(Xw[:, :, -1]), (p, p))[::-1]
+    assert np.abs(got - want).max() <= 1, f"heat-map peak at {got}, the affine maps the seed to {want}"
+    assert fgw.dtype == bool and 0.5 < fgw.sum() / fg.sum() / 0.81 < 1.5, "label did not follow the warp"
+    print(f"  affine         ok (heat-map peak within {np.abs(got - want).max():.2g} px of the mapped seed)")
+
+
 def stage3(root, run_root, workers):
     """Fold 1: train 1 epoch, stop, resume to epoch 2, write P. Checks the
     cosine schedule survives the resume, net.pt holds the last epoch, and the
@@ -92,6 +111,7 @@ def stage3(root, run_root, workers):
     import math
     cfg, images, folds = rt.load_bundle(root)
     fold = folds[0]
+    check_affine(cfg)
     assert rt.train_fold(root, run_root, 1, 0, epochs=2, stop_after=1, workers=workers) is None
     assert rt.train_fold(root, run_root, 1, 0, epochs=2, workers=workers) is not None
     log = list(csv.DictReader(open(Path(run_root) / "fold1" / "log.csv")))
@@ -111,16 +131,15 @@ def stage3(root, run_root, workers):
     assert n_seed == fold["trainSeeds"] + fold["valSeeds"], "inner seeds did not join training"
     expect = max(1, int(rt.mround(float(cfg["perSeed"]) * n_seed / len(n_img)))) * len(n_img)
     assert len(ck["rows"]) == expect, f"{len(ck['rows'])} patches/epoch, expected {expect}"
-    mean = st["model"]["mean"]
-    d = np.abs(mean.numpy() - fold["mean"]).max()
-    assert d <= 0.005, f"zero-centre mean {mean.numpy()} vs MATLAB {fold['mean']}"
     assert float(log[1]["train_loss"]) < float(log[0]["train_loss"]), "training loss did not fall"
-    n = len(list((Path(run_root) / "probcache").glob("*.mat")))
-    assert n == len(fold["test"]), f"{n} P files for {len(fold['test'])} held-out images"
+    cache = list((Path(run_root) / "probcache").glob("*.mat"))
+    assert len(cache) == len(fold["test"]), f"{len(cache)} P files for {len(fold['test'])} held-out images"
+    P = sio.loadmat(cache[0])["P"]
+    assert np.isfinite(P).all() and P.min() >= 0 and P.max() <= 1, f"P outside [0, 1] in {cache[0].name}"
     secs = np.mean([float(r["seconds"]) for r in log])
     epochs = int(cfg["epochsCv"])
     print(f"  smoke          ok (resume, output epoch {st['epoch']}, {len(ck['rows'])} patches/epoch, "
-          f"mean within {d:.2g}, loss {float(log[0]['train_loss']):.4f} -> {float(log[1]['train_loss']):.4f}, "
+          f"loss {float(log[0]['train_loss']):.4f} -> {float(log[1]['train_loss']):.4f}, "
           f"lr {log[0]['lr']} -> {log[1]['lr']})")
     print(f"  {secs:.0f} s/epoch on {torch.cuda.get_device_name() if torch.cuda.is_available() else 'cpu'}: "
           f"one 5-fold CV of {epochs} epochs ~ {secs * epochs * 5 / 3600:.1f} h")
