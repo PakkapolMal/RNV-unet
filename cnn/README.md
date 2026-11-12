@@ -31,6 +31,7 @@ The folder was `CNN+GVF/` until 2026-09-25, when the GVF + level-set stages were
   fuseSeedless.m        stage 4a: the seedless P fused into the seeded P (pixel max)
   segmentImage.m        all of the above, one image
   probCache.m           per-fold P cache with a leakage guard
+  cachedMask.m          one image's scored mask from the caches (run_cache, run_figures)
   cvFolds.m             deterministic area-stratified folds over the domain
   evaluate.m            whole-image scoring
   loadMask.m metrics.m saveOverlay.m writeSummary.m    small I/O helpers
@@ -39,6 +40,7 @@ run_batch.m             segment + score every image (mostly in-sample)
 run_cv.m                k-fold train + score in MATLAB (frozen arms only)
 run_eval.m              re-score cached masks, no GPU
 run_cache.m             score cached cross-validated P, check against the reference
+run_figures.m           error map vs ground truth per image, from the same masks run_cache scores
 run_steps.m             one image, every intermediate written out
 run_export.m            bundle for the PyTorch trainer in ../colab/ (data, folds, weights, fixtures)
 test_cnngvf.m           self-check, 11 checks
@@ -69,6 +71,7 @@ run_batch                              % -> result/DRACTUH_unclustered/ (MATLAB 
 
 run_steps("458.png")                   % one DRAC22 image, every stage written out
 run_steps("nv (21).png")               % one TUH image
+run_figures                            % -> result/DRACTUH_unclustered/figures/<reference>/, one PNG per image
 
 run_eval(fullfile(cnngvf.defaults().Paths.Output))   % re-score, ~1 s, no GPU
 

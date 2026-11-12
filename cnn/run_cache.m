@@ -45,22 +45,8 @@ results(n) = struct('image', "", 'seeds', [], 'perSeed', {{}}, 'mask', []);
 elapsed = zeros(n, 1);
 for i = 1:n
     t = tic;
-    c = cnngvf.probCache("read", cacheDir, images(i), cfg);
     s = seeds(names == images(i), :);
-    seedless = strlength(cfg.Post.seedlessCache) > 0;
-    if isempty(s) && seedless
-        % No points: the seedless network's mask (docs/results/2026-11-12-seedless-fallback.md).
-        c = cnngvf.probCache("read", cfg.Post.seedlessCache, images(i), cfg);
-        [mask, perSeed] = deal(cnngvf.noPointMask(double(c.P), cfg), {});
-    else
-        P = double(c.P);
-        if seedless
-            % Stage 4a (docs/results/2026-11-12-fusion-confirm.md).
-            cs = cnngvf.probCache("read", cfg.Post.seedlessCache, images(i), cfg);
-            P = cnngvf.fuseSeedless(P, double(cs.P), cfg);
-        end
-        [mask, perSeed] = cnngvf.maskFromProb(P, s, cfg);
-    end
+    [mask, perSeed] = cnngvf.cachedMask(cacheDir, images(i), s, cfg);
     results(i) = struct('image', images(i), 'seeds', s, 'perSeed', {perSeed}, 'mask', mask);
     elapsed(i) = toc(t);
 end
