@@ -5,10 +5,14 @@ kind: implementation-brief
 audience: Claude Code
 target: RNV-Claude/colab (user runs), RNV-Claude/cnn (scoring)
 depends-on: results/2026-11-12-fusion-uncertainty.md, results/2026-11-12-seedless-fallback.md
-status: pre-registered 2026-11-12, not yet run
+status: executed 2026-11-12
 ---
 
 # Confirming Whole-image Fusion on a Retrained Seedless Network
+
+> **Executed brief.** Kept as written. Outcome: (a) passes, +0.0104, CI [+0.0040, +0.0192].
+> (b) does not replace it: (b) − (a) is −0.0051, CI below 0.
+> [../results/2026-11-12-fusion-confirm.md](../results/2026-11-12-fusion-confirm.md).
 
 ## Why
 
