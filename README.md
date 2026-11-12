@@ -110,6 +110,7 @@ MIT, see [LICENSE](LICENSE). The license covers the code and documents here, not
 | [2026-11-11 recipe](docs/results/2026-11-11-paper-recipe.md) | pretrained EfficientNet-B3 U-Net, CE + Dice, affine + CLAHE, one bundle? (69 images, 5-fold CV, PyTorch) | **adopted: 0.6125**, +0.087 CI [+0.056, +0.118] by a margin gate; spill ×2.20 → ×1.17, under-coverage ×0.52 → ×0.86 |
 | [2026-11-11 refit](docs/results/2026-11-11-tau-floor-refit.md) | re-fit `tau` × `relaxFloor` on the new `P`? (69 images, 5-fold CV, cross-fitted) | no: +0.0004 CI [−0.003, +0.003]; folds disagree; both stay |
 | [2026-11-12 seedless](docs/results/2026-11-12-seedless-fallback.md) | a seedless network for the 3 images with no points? (69 images, 5-fold CV, rule cross-fitted on the 18 images with 1–3 points) | **adopted: 0.6364**, +0.024; targets 0.550 mean IoU (`445` still 0), proxy 0.467 |
+| [2026-11-12 fusion](docs/results/2026-11-12-fusion-weak-seeds.md) | bring the seedless `P` in at weak seeds, before relax? (69 images, 5-fold CV, cross-fitted) | no: +0.0010 CI [−0.0007, +0.0028]; 90 % of weak seeds have no seedless component either; relax stays |
 
 ## History
 
@@ -121,6 +122,7 @@ Code for rejected or superseded work is kept as tags rather than as switches in 
 | `archive/levelset-master` | `master` as the best GVF + DRLSE version |
 | `archive/reduce-refine` | the refinement code: `run_refine`, cross-fitting, seed features, TTA |
 | `archive/seedless-prob` | the seedless `P` arm and tiled inference |
+| `archive/fusion` | `cnngvf.fuseWeakSeeds` and `run_fusion_grid`: seedless `P` at weak seeds |
 | `archive/seedless-fallback` | `run_seedless_fit`: the no-point rule's cross-fit, and its top-1 keep option |
 | `archive/relax-grid` | `run_relax_grid`: relax window × floor, cross-fitted off the CV cache |
 | `archive/seed-hull` | `cnngvf.seedHull`: triangle fill and closing between linked seeds, after claiming |

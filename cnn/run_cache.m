@@ -52,13 +52,7 @@ for i = 1:n
         c = cnngvf.probCache("read", cfg.Post.noPointCache, images(i), cfg);
         [mask, perSeed] = deal(cnngvf.noPointMask(double(c.P), cfg), {});
     else
-        P = double(c.P);
-        if cfg.Post.weakSeed ~= "relax"
-            % Weak seeds read the seedless P too (docs/briefs/fusion.md).
-            cs = cnngvf.probCache("read", cfg.Post.noPointCache, images(i), cfg);
-            P = cnngvf.fuseWeakSeeds(P, double(cs.P), s, cfg);
-        end
-        [mask, perSeed] = cnngvf.maskFromProb(P, s, cfg);
+        [mask, perSeed] = cnngvf.maskFromProb(double(c.P), s, cfg);
     end
     results(i) = struct('image', images(i), 'seeds', s, 'perSeed', {perSeed}, 'mask', mask);
     elapsed(i) = toc(t);

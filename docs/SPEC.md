@@ -439,7 +439,6 @@ archives any existing network with a timestamp before saving.
 | `Post.ClaimRule` | **`"boundary"`** | same rule as training labels; `"centroid"` on the frozen arms |
 | `Post.hullLink` | **128 px** | seed hull pairwise bound, cross-fitted over 64–256; 0 turns it off, as on the frozen arms ([results](results/2026-09-30-seed-hull-d.md)) |
 | `Post.noPointCache` | **`<Output>/cv/probcache_seedless`** | the seedless network's CV `P`; `""` turns stage 9 off, as on the frozen arms |
-| `Post.weakSeed`, `weakSeedTau` | **`"relax"`**, 0.9 | **experiment, branch `exp/fusion`:** what a seed the threshold left empty gets, `cnngvf.fuseWeakSeeds`. `"relax"` is the current pipeline; `"seedlessFirst"` and `"maxRelax"` bring in the seedless `P` above `weakSeedTau` ([briefs/fusion.md](briefs/fusion.md)) |
 | `Post.noPointTau` | **0.40** | cross-fitted on the images with 1–3 points; 0.30–0.90 all within 0.011 on the targets ([results](results/2026-11-12-seedless-fallback.md)) |
 
 ## Running it
@@ -661,8 +660,13 @@ contending for one laptop GPU is slower than serial.
   `445` now gets the seedless mask, but the seedless network finds nothing in its lesion
   (`P` = 0.000 inside the GT), so it scores 0 too. Re-localize both upstream.
 - **A seedless `P` finds lesion the seeded one misses.** On the 66 images with points, 6.4 %
-  of GT pixels are above 0.5 only in the seedless `P`, at 0.21 % of background pixels. Fusing
-  the two maps is untested ([results/2026-11-12-seedless-fallback.md](results/2026-11-12-seedless-fallback.md)).
+  of GT pixels are above 0.5 only in the seedless `P`, at 0.21 % of background pixels
+  ([results/2026-11-12-seedless-fallback.md](results/2026-11-12-seedless-fallback.md)). Bringing
+  it in at weak seeds gained +0.0010, CI including 0: under 90 % of weak seeds the seedless
+  network also sees nothing. An image-level trigger on seeded uncertainty is untested
+  ([results/2026-11-12-fusion-weak-seeds.md](results/2026-11-12-fusion-weak-seeds.md)).
+- **Most weak seeds end on the disk.** Of 156 seeds the threshold leaves empty, 87 find no
+  relax component of `MinArea` and take the 15 px disk; 69 take relax.
 - **The balanced-sampling gain is unverified.** Every cross-validated arm used it.
 - **A trained CV costs about 5 h** on a Colab L4 (73–85 s per epoch, 40 epochs, 5 folds), and
   about 18 h for a frozen arm in MATLAB. Any post-`P` change scores off the cache with

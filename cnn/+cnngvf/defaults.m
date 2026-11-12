@@ -200,13 +200,6 @@ cfg.Post.hullLink = 128;
 cfg.Post.noPointCache = fullfile(cfg.Paths.Output, 'cv', 'probcache_seedless');
 cfg.Post.noPointTau   = 0.40;
 
-% EXPERIMENT (docs/briefs/fusion.md): what a weak seed (one the threshold left
-% empty) gets, see cnngvf.fuseWeakSeeds. "relax" is the current pipeline;
-% "seedlessFirst" and "maxRelax" read the seedless P from noPointCache, with
-% weakSeedTau the seedless entry threshold.
-cfg.Post.weakSeed    = "relax";
-cfg.Post.weakSeedTau = 0.9;
-
 % --- Hardware --------------------------------------------------------------
 % gpuDevice sees CUDA devices only; an integrated GPU busy in Task Manager is
 % desktop rendering, not this pipeline. GpuName goes into every run record.
