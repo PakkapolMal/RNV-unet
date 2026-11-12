@@ -139,6 +139,8 @@ image ─► intensity ────────────────┐
                                    ├─► 512² seed-centred patch ─► U-Net ─► P
 seed (x,y) ─► Gaussian heat-map ───┘                                       │
                                                                            ▼
+       whole frame ─► seedless U-Net ─► P_s ─► fusion: P = max(P, P_s > 0.9)
+                                                                           │
                                                               BW = P > tau (0.5)
                                                                            │
                                           seed fallback: relax at 0.20 ◄───┘
@@ -149,9 +151,10 @@ seed (x,y) ─► Gaussian heat-map ───┘                                
               seed hull: fill triangles of seeds within 128 px ─► mask
 ```
 
-An image with **no points at all** takes a different path: a second, seedless network sees
-the whole frame, and its `P > 0.40` (closed, filled, `MinArea`) is the mask
-([stage 9](#9-no-points--the-seedless-mask)).
+A second, **seedless network** sees the whole frame with no seed input. Its `P` is used
+twice: fused into every image's seeded `P` before the threshold
+([stage 4a](#4a-fusion-with-the-seedless-p)), and, for an image with **no points at all**, as
+the mask itself: `P > 0.40`, closed, filled, `MinArea` ([stage 9](#9-no-points--the-seedless-mask)).
 
 One mask is built for the whole image and the seeds decide afterwards which components
 survive — that is what lets a lesion split into fronds, which a per-seed contour cannot do.
@@ -202,7 +205,30 @@ post-processing lever was worth an order of magnitude less. The remaining large-
 lesions outside it: the lever is training, not geometry
 ([results/2026-09-17-refine.md](results/2026-09-17-refine.md), step 5).
 
-**Its failures cannot be repaired downstream.** A lesion the network never responds to is gone.
+**Its failures cannot be repaired downstream.** A lesion the network never responds to is gone,
+unless the seedless network sees it (stage 4a).
+
+### 4a. Fusion with the seedless P
+
+**Does:** for every image with points, `cnngvf.fuseSeedless` replaces the seeded `P` with
+max(seeded `P`, seedless `P` where it exceeds `Post.fuseTauS` = 0.9, else 0), over the whole
+image. Stages 5–8 then run unchanged on that map.
+
+**Matters because** the seeded `P` is defined only inside the 512 px patches around seeds, and
+stops short of the extent of the largest lesions. The seedless network sees the whole frame.
+The fused pixels are about three-quarters lesion. On the two largest gainers, `795` and `461`,
+83 % of the added area lies outside every seeded patch.
+
+**Seeds still decide what survives.** A seedless blob that no seed's component reaches is
+dropped by claiming, like any other.
+
+**Worth +0.0104 IoU on a second, independent seedless network** (CI [+0.004, +0.019]) and
++0.0120 on the adopted one, with the cell fixed before the second run; +0.0116 cross-fitted
+where it was first chosen ([results/2026-11-12-fusion-confirm.md](results/2026-11-12-fusion-confirm.md)).
+- The gain is a trade: recall +0.018, precision −0.005. It is largest on the largest lesions.
+- About half of it is `795` and `461`, on both runs. The other 67 images gain +0.006.
+- An uncertainty gate (U) and a sliver filter were both tried and lost to plain fusion
+  ([results/2026-11-12-fusion-uncertainty.md](results/2026-11-12-fusion-uncertainty.md)).
 
 ### 5. Threshold and seed fallback — `06_binary_raw.png`
 
@@ -273,9 +299,9 @@ qualifying area was already in the mask
 ### 9. No points — the seedless mask
 
 **Does:** for an image with **zero** localization points, `run_cache` reads the seedless
-network's whole-frame `P` from `Post.noPointCache` (through `cnngvf.probCache`'s leakage
+network's whole-frame `P` from `Post.seedlessCache` (through `cnngvf.probCache`'s leakage
 guard), and `cnngvf.noPointMask` returns `P > noPointTau`, closed, filled, with components
-below `MinArea` dropped. Every image with points goes through stages 3–8 unchanged.
+below `MinArea` dropped. Every image with points goes through stages 3–8, with stage 4a.
 
 **Matters because** without it such an image gets `P = 0` by construction and scores 0. In
 this domain that is `082`, `217` and `445`. With it they score 0.788, 0.863 and 0, which is
@@ -294,9 +320,10 @@ assumption that every image contains RNV.
 
 **The seedless network** is the adopted network with intensity only and no heat-map, trained
 on whole 1024² frames (see [Network](#network)). Alone it scores 0.520 IoU on DRAC22 and 0.473
-on TUH, below the seeded pipeline on both, so it is used only where there are no seeds.
+on TUH, below the seeded pipeline on both. That is why it is the mask only where there are no
+seeds, and elsewhere only adds to the seeded `P` (stage 4a).
 
-**`run_batch` and `run_steps` do not apply it.** Like the seeded network, the seedless one
+**`run_batch` and `run_steps` apply neither this stage nor 4a.** Like the seeded network, the seedless one
 trains in PyTorch, and those runners load MATLAB networks; they predict nothing for an image
 with no points.
 
@@ -438,8 +465,8 @@ archives any existing network with a timestamp before saving.
 | `Post.MinArea` | 500 px | components below it cannot be claimed; must stay under the smallest component the network fires on (~700 px: `421`, `217`). Cross-fitted over 100–1000 and jointly with `seedRadius`: every fold picks 500 ([results](results/2026-10-02-minarea-disk.md)) |
 | `Post.ClaimRule` | **`"boundary"`** | same rule as training labels; `"centroid"` on the frozen arms |
 | `Post.hullLink` | **128 px** | seed hull pairwise bound, cross-fitted over 64–256; 0 turns it off, as on the frozen arms ([results](results/2026-09-30-seed-hull-d.md)) |
-| `Post.noPointCache` | **`<Output>/cv/probcache_seedless`** | the seedless network's CV `P`; `""` turns stage 9 off, as on the frozen arms |
-| `Post.fuseCut`, `fuseTauS` | **`Inf`** (off), 0.9 | **experiment, branch `exp/fusion-uncertainty`:** an image with points whose `cnngvf.seededUncertainty` is at least `fuseCut` takes the pixel max of its seeded `P` and the seedless `P` above `fuseTauS` (`cnngvf.fuseUncertain`); `-Inf` fuses every image ([briefs/fusion-uncertainty.md](briefs/fusion-uncertainty.md)) |
+| `Post.seedlessCache` | **`<Output>/cv/probcache_seedless`** | the seedless network's CV `P`, read by stages 4a and 9; `""` turns both off, as on the frozen arms |
+| `Post.fuseTauS` | **0.9** | stage 4a: the seedless `P` enters only above it. It won a 0.0009 tie against 0.5 and was then fixed before the replication ([results](results/2026-11-12-fusion-confirm.md)) |
 | `Post.noPointTau` | **0.40** | cross-fitted on the images with 1–3 points; 0.30–0.90 all within 0.011 on the targets ([results](results/2026-11-12-seedless-fallback.md)) |
 
 ## Running it
@@ -660,12 +687,14 @@ contending for one laptop GPU is slower than serial.
   443's; the standardized CSVs give it none). `299` still scores ≈ 0 on its stray points.
   `445` now gets the seedless mask, but the seedless network finds nothing in its lesion
   (`P` = 0.000 inside the GT), so it scores 0 too. Re-localize both upstream.
-- **A seedless `P` finds lesion the seeded one misses.** On the 66 images with points, 6.4 %
-  of GT pixels are above 0.5 only in the seedless `P`, at 0.21 % of background pixels
-  ([results/2026-11-12-seedless-fallback.md](results/2026-11-12-seedless-fallback.md)). Bringing
-  it in at weak seeds gained +0.0010, CI including 0: under 90 % of weak seeds the seedless
-  network also sees nothing. An image-level trigger on seeded uncertainty is untested
-  ([results/2026-11-12-fusion-weak-seeds.md](results/2026-11-12-fusion-weak-seeds.md)).
+- **Half of stage 4a's gain is two images.** `795` and `461`, very large DRAC22 lesions, carry
+  about half of it on both seedless runs. A domain with fewer such lesions would see about
+  +0.006. Bringing the seedless `P` in only at weak seeds gained nothing: under 90 % of them
+  the seedless network sees nothing either
+  ([results/2026-11-12-fusion-weak-seeds.md](results/2026-11-12-fusion-weak-seeds.md), [results/2026-11-12-fusion-confirm.md](results/2026-11-12-fusion-confirm.md)).
+- **The seedless network is noisy on single images.** Two runs of one recipe score the three
+  point-less targets 0.550 and 0.680 mean IoU; `445` goes from 0 to 0.363. Stage 9's figure
+  rests on one run ([results/2026-11-12-fusion-confirm.md](results/2026-11-12-fusion-confirm.md)).
 - **Most weak seeds end on the disk.** Of 156 seeds the threshold leaves empty, 87 find no
   relax component of `MinArea` and take the 15 px disk; 69 take relax.
 - **The balanced-sampling gain is unverified.** Every cross-validated arm used it.

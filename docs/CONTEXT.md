@@ -151,9 +151,10 @@ failure, unlike a frond, which is a shape of the lesion itself.
 _Avoid_: frond (for a prediction piece), island, blob
 
 **Seedless Network**:
-A second network that sees the whole frame with no seed input. It segments only the
-images with no localization points at all, where the seed-conditioned network has nothing
-to answer.
+A second network that sees the whole frame with no seed input. On an image with no
+localization points it gives the mask; on every other image its confident pixels are fused
+into the seed-conditioned map, so a lesion's extent beyond the seeded patches can be found.
+Seeds still decide which fused regions survive.
 _Avoid_: unseeded model, fallback network (the seed fallback is a different thing)
 
 **Seed Hull**:

@@ -17,7 +17,7 @@ testMaskFromProb(cfg);
 testSeedComponents(cfg);
 testSeedHull(cfg);
 testNoPointMask(cfg);
-testFuseUncertain(cfg);
+testFuseSeedless(cfg);
 testProbCache(cfg);
 testRunCache(cfg);
 testDomain(cfg);
@@ -240,35 +240,21 @@ fprintf('  no-point mask             ok (threshold, MinArea)\n');
 end
 
 
-function testFuseUncertain(cfg)
-% U counts unsure pixels against confident ones; fusion takes the max of the
-% two maps only above the cut and only where the seedless P clears tau_s.
-Pk = zeros(200);
-Pk(21:60, 21:60) = 0.9;           % 1 600 confident px
-Pk(101:120, 101:140) = 0.5;       % 800 unsure px (also >= 0.5)
-Pk(151:160, 1:40) = 0.3;          % 400 unsure px
-U = cnngvf.seededUncertainty(Pk);
-assert(abs(U - 1200 / 2400) < 1e-12, 'U = %g, want 0.5', U);
-assert(cnngvf.seededUncertainty(zeros(10)) == 0, 'U of an empty P');
-
-Ps = zeros(200);
-Ps(61:70, 21:60) = 0.95;          % extends the confident blob
-Ps(181:190, 181:190) = 0.6;       % below tau_s 0.9: ignored
+function testFuseSeedless(cfg)
+% The seedless P enters by pixel max, and only above fuseTauS.
+Pk = zeros(100);
+Pk(21:40, 21:40) = 0.9;
+Pk(61:70, 61:70) = 0.3;
+Ps = zeros(100);
+Ps(41:50, 21:40) = 0.95;          % extends the seeded blob
+Ps(61:70, 61:70) = 0.6;           % below fuseTauS 0.9: ignored
+Ps(21:40, 21:40) = 0.92;          % higher than the seeded 0.9: the max takes 0.92
 cfg.Post.fuseTauS = 0.9;
-cfg.Post.fuseCut = Inf;
-[Pf, f] = cnngvf.fuseUncertain(Pk, Ps, cfg);
-assert(~f && isequal(Pf, Pk), 'off changed P');
-cfg.Post.fuseCut = 0.6;           % U 0.5 is below the cut
-[Pf, f] = cnngvf.fuseUncertain(Pk, Ps, cfg);
-assert(~f && isequal(Pf, Pk), 'fused below the cut');
-cfg.Post.fuseCut = 0.5;           % at the cut: fuse
-[Pf, f] = cnngvf.fuseUncertain(Pk, Ps, cfg);
-assert(f && all(Pf(61:70, 21:60) == 0.95, 'all') && all(Pf(181:190, 181:190) == 0, 'all'), ...
-    'fusion did not take the max above tau_s');
-cfg.Post.fuseCut = -Inf;          % every image
-[~, f] = cnngvf.fuseUncertain(zeros(10), zeros(10), cfg);
-assert(f, '-Inf did not fuse');
-fprintf('  uncertainty fusion        ok (U, cut, tau_s, -Inf)\n');
+Pf = cnngvf.fuseSeedless(Pk, Ps, cfg);
+assert(all(Pf(41:50, 21:40) == 0.95, 'all'), 'seedless extension missing');
+assert(all(Pf(61:70, 61:70) == 0.3, 'all'), 'seedless P below fuseTauS entered');
+assert(all(Pf(21:40, 21:40) == 0.92, 'all'), 'not a pixel max');
+fprintf('  seedless fusion           ok (pixel max above fuseTauS)\n');
 end
 
 
@@ -327,7 +313,10 @@ cacheDir = fullfile(tmp, 'probcache');
 cnngvf.probCache("write", cacheDir, img, P, struct('fold', 1, 'arm', "test"));
 
 [names, seeds] = cnngvf.loadPoints(cfg);
-expected = cnngvf.metrics(cnngvf.maskFromProb(double(P), seeds(names == img, :), cfg), gt).iou;
+% The full path, stage 4a included: the real seedless P is fused into the stub.
+Ps = cnngvf.probCache("read", cfg.Post.seedlessCache, img, cfg).P;
+Pf = cnngvf.fuseSeedless(double(P), double(Ps), cfg);
+expected = cnngvf.metrics(cnngvf.maskFromProb(Pf, seeds(names == img, :), cfg), gt).iou;
 
 c = cfg;
 c.Paths.Output  = tmp;
