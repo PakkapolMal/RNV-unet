@@ -697,6 +697,16 @@ contending for one laptop GPU is slower than serial.
   rests on one run ([results/2026-11-12-fusion-confirm.md](results/2026-11-12-fusion-confirm.md)).
   Averaging the two runs gained +0.0030, CI including 0: stage 9 gains from the union, stage 4a
   loses at 0.9 from the agreement ([results/2026-11-12-seedless-ensemble.md](results/2026-11-12-seedless-ensemble.md)).
+  **Rejected, but worth re-testing.** The two runs differ only in training randomness, so an
+  ensemble fits nothing and makes the pipeline less dependent on one arbitrary draw. It was
+  held back for two reasons:
+  - the evidence was inconclusive, not negative;
+  - averaging near-binary maps shifts what each stage's threshold means.
+
+  Re-test it when either of these exists:
+  - a more robust decision: more images, or point-less images the arm was not proposed from;
+  - an ensemble that keeps each stage's operating point, with its thresholds fixed before
+    scoring.
 - **Most weak seeds end on the disk.** Of 156 seeds the threshold leaves empty, 87 find no
   relax component of `MinArea` and take the 15 px disk; 69 take relax.
 - **The balanced-sampling gain is unverified.** Every cross-validated arm used it.
