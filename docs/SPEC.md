@@ -695,6 +695,8 @@ contending for one laptop GPU is slower than serial.
 - **The seedless network is noisy on single images.** Two runs of one recipe score the three
   point-less targets 0.550 and 0.680 mean IoU; `445` goes from 0 to 0.363. Stage 9's figure
   rests on one run ([results/2026-11-12-fusion-confirm.md](results/2026-11-12-fusion-confirm.md)).
+  Averaging the two runs gained +0.0030, CI including 0: stage 9 gains from the union, stage 4a
+  loses at 0.9 from the agreement ([results/2026-11-12-seedless-ensemble.md](results/2026-11-12-seedless-ensemble.md)).
 - **Most weak seeds end on the disk.** Of 156 seeds the threshold leaves empty, 87 find no
   relax component of `MinArea` and take the 15 px disk; 69 take relax.
 - **The balanced-sampling gain is unverified.** Every cross-validated arm used it.

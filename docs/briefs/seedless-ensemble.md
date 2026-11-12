@@ -5,10 +5,14 @@ kind: implementation-brief
 audience: Claude Code
 target: RNV-Claude/cnn, MATLAB R2026a
 depends-on: results/2026-11-12-fusion-confirm.md, results/2026-11-12-seedless-fallback.md
-status: pre-registered 2026-11-12, not yet run
+status: executed 2026-11-12
 ---
 
 # Averaging the Two Seedless Networks
+
+> **Executed brief.** Kept as written. Outcome: gate 1 failed. ΔIoU is +0.0030, CI [−0.0042,
+> +0.0149]; every prediction held. One seedless run stays:
+> [../results/2026-11-12-seedless-ensemble.md](../results/2026-11-12-seedless-ensemble.md).
 
 ## Why
 
