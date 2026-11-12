@@ -5,10 +5,14 @@ kind: implementation-brief
 audience: Claude Code
 target: RNV-Claude/cnn, MATLAB R2026a
 depends-on: results/2026-11-12-seedless-fallback.md, results/2026-11-11-tau-floor-refit.md, results/2026-09-16-reduce.md
-status: pre-registered 2026-11-12 (amended the same day, before any run), not yet run
+status: executed 2026-11-12
 ---
 
 # Fusing the Seedless P at Weak Seeds
+
+> **Executed brief.** Kept as written. Outcome: gate 1 failed. Cross-fitted ΔIoU is +0.0010,
+> CI [−0.0007, +0.0028]; four folds chose "max then relax" at 0.9. Relax stays:
+> [../results/2026-11-12-fusion-weak-seeds.md](../results/2026-11-12-fusion-weak-seeds.md).
 
 > **Amended 2026-11-12, before any run.** The first version triggered fusion per image on the
 > agreement A = Dice(seeded mask, seedless mask) and fused the whole image (operators `max`,
