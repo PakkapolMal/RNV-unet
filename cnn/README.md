@@ -41,6 +41,7 @@ run_cv.m                k-fold train + score in MATLAB (frozen arms only)
 run_eval.m              re-score cached masks, no GPU
 run_cache.m             score cached cross-validated P, check against the reference
 run_fusion_u_grid.m     experiment: cross-fit the U-gated fusion (docs/briefs/fusion-uncertainty.md)
+run_fusion_confirm.m    experiment: score the two fixed fusion cells (docs/briefs/fusion-confirm.md)
 run_steps.m             one image, every intermediate written out
 run_export.m            bundle for the PyTorch trainer in ../colab/ (data, folds, weights, fixtures)
 test_cnngvf.m           self-check, 11 checks
