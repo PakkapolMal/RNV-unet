@@ -117,6 +117,7 @@ MIT, see [LICENSE](LICENSE). The license covers the code and documents here, not
 | [2026-11-12 fusion](docs/results/2026-11-12-fusion-weak-seeds.md) | bring the seedless `P` in at weak seeds, before relax? (69 images, 5-fold CV, cross-fitted) | no: +0.0010 CI [−0.0007, +0.0028]; 90 % of weak seeds have no seedless component either; relax stays |
 | [2026-11-12 fusion U](docs/results/2026-11-12-fusion-uncertainty.md) | fuse the seedless `P` on images whose seeded `P` is unsure? (69 images, 5-fold CV, cross-fitted) | +0.0116 CI [+0.004, +0.022], but gate 2 fails: all 5 folds fuse every image and split 3–2 on τ_s; half the gain is `795` and `461`; not adopted, pending decision |
 | [2026-11-12 fusion confirm](docs/results/2026-11-12-fusion-confirm.md) | does fusing every image replicate on a second seedless network? (69 images, 5-fold CV, cells fixed before training) | **yes: +0.0104** CI [+0.004, +0.019] (first run +0.0120); the sliver filter loses to plain fusion; **adopted: 0.6484** |
+| [2026-11-12 seedless ensemble](docs/results/2026-11-12-seedless-ensemble.md) | average the two seedless runs for stages 4a and 9? (69 images, 5-fold CV, one fixed cell) | no: +0.0030 CI [−0.004, +0.015]; stage 9 gains (`445` 0 → 0.36), stage 4a loses on the largest lesions; one run stays |
 
 ## History
 
