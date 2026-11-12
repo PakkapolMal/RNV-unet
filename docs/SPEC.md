@@ -4,7 +4,7 @@ description: The working specification of the current pipeline — architecture,
 kind: specification
 status: current
 dataset: DRAC22 + TUH (69 images, standardized datasets/)
-updated: 2026-11-11
+updated: 2026-11-12
 ---
 
 # RNV Segmentation from Localization Points — Specification
@@ -92,9 +92,11 @@ step 2).
 
 Six DRAC22 images end up with ground truth but no usable seed — **`082.png`, `217.png` and
 `445.png`** have no points at all, **`299.png`, `573.png` and `664.png`** only points beyond the
-tolerance. They are still scored, and score ≈ 0. That is a localization-stage gap charged to
-the segmenter, which is the honest accounting: whole-image scoring charges for lesions missed
-entirely.
+tolerance. They are still scored. The three with no points go to the seedless network
+([stage 9](#9-no-points--the-seedless-mask)): `082` and `217` now score 0.79 and 0.86, and
+`445` still 0. The three with stray points score ≈ 0, because recognising a point as wrong
+needs GT. That is a localization-stage gap charged to the segmenter, which is the honest
+accounting: whole-image scoring charges for lesions missed entirely.
 
 **Data-quality note (2026-09-29, 68-image domain).** `299.png` and `445.png` were upstream
 localization bugs, not segmentation failures. All four of `299.png`'s detections are errors, and **`445.png`'s single detection,
@@ -146,6 +148,10 @@ seed (x,y) ─► Gaussian heat-map ───┘                                
                             ▼
               seed hull: fill triangles of seeds within 128 px ─► mask
 ```
+
+An image with **no points at all** takes a different path: a second, seedless network sees
+the whole frame, and its `P > 0.40` (closed, filled, `MinArea`) is the mask
+([stage 9](#9-no-points--the-seedless-mask)).
 
 One mask is built for the whole image and the seeds decide afterwards which components
 survive — that is what lets a lesion split into fronds, which a per-seed contour cannot do.
@@ -264,6 +270,36 @@ At 64 px (2 · `sigmaSeed`, where two heat-map bumps merge) it was inert: 97 % o
 qualifying area was already in the mask
 ([results/2026-09-30-seed-hull.md](results/2026-09-30-seed-hull.md)).
 
+### 9. No points — the seedless mask
+
+**Does:** for an image with **zero** localization points, `run_cache` reads the seedless
+network's whole-frame `P` from `Post.noPointCache` (through `cnngvf.probCache`'s leakage
+guard), and `cnngvf.noPointMask` returns `P > noPointTau`, closed, filled, with components
+below `MinArea` dropped. Every image with points goes through stages 3–8 unchanged.
+
+**Matters because** without it such an image gets `P = 0` by construction and scores 0. In
+this domain that is `082`, `217` and `445`. With it they score 0.788, 0.863 and 0, which is
++0.024 on the 69-image headline. The other 66 images do not move
+([results/2026-11-12-seedless-fallback.md](results/2026-11-12-seedless-fallback.md)).
+
+**Why it is honest.** "This image has no points" is known at inference. `noPointTau` was
+cross-fitted on the 18 images with 1–3 points, scored as if they had none: chosen by point
+count, never by the three targets. Their cross-fitted IoU, 0.467, is the estimate of what the
+rule does on images like the targets; the targets' 0.550 rests on 3 images.
+
+**Why 0.40 and every component.** The threshold barely matters: 0.30–0.90 give the targets
+0.55–0.56, because a seedless `P` is close to binary. Keeping only the component with the most
+`P` mass lost about 0.03 on the proxy at every threshold, so the rule keeps all and needs no
+assumption that every image contains RNV.
+
+**The seedless network** is the adopted network with intensity only and no heat-map, trained
+on whole 1024² frames (see [Network](#network)). Alone it scores 0.520 IoU on DRAC22 and 0.473
+on TUH, below the seeded pipeline on both, so it is used only where there are no seeds.
+
+**`run_batch` and `run_steps` do not apply it.** Like the seeded network, the seedless one
+trains in PyTorch, and those runners load MATLAB networks; they predict nothing for an image
+with no points.
+
 ## Specification
 
 All values from [`+cnngvf/defaults.m`](../cnn/+cnngvf/defaults.m), which is the current
@@ -367,6 +403,14 @@ the loss function. Under the replica recipe 2 of 16 fold trainings stalled; unde
 of 5 ([results/2026-11-07-train-budget.md](results/2026-11-07-train-budget.md),
 [results/2026-11-11-paper-recipe.md](results/2026-11-11-paper-recipe.md)).
 
+**The seedless network** (`rnvtorch.py train-seedless`) uses the same network, loss,
+optimiser and schedule, with intensity only (no heat-map). It trains on whole 1024² frames with
+every lesion as target, `Net.seedlessCopies` (10) augmented copies of each training image per
+epoch, `Net.seedlessEpochs` (60) epochs and minibatch `Net.seedlessMiniBatch` (4). Its
+augmentation adds a translation of up to ±5 % and uses 8 × 8 CLAHE tiles, 128 px on the frame
+as on the seeded patch. It trains on every non-test image, including those without points.
+No fold stalled in its one run ([results/2026-11-12-seedless-fallback.md](results/2026-11-12-seedless-fallback.md)).
+
 **The replica U-Net stays in the trainer as a test fixture.** `rnvtorch.UNet` and
 `generalized_dice` port MATLAB's `unet([512 512 2], 2, EncoderDepth=4)` and its loss, and
 `test_parity.py` checks them against MATLAB's fold networks, which also checks the shared patch
@@ -394,6 +438,8 @@ archives any existing network with a timestamp before saving.
 | `Post.MinArea` | 500 px | components below it cannot be claimed; must stay under the smallest component the network fires on (~700 px: `421`, `217`). Cross-fitted over 100–1000 and jointly with `seedRadius`: every fold picks 500 ([results](results/2026-10-02-minarea-disk.md)) |
 | `Post.ClaimRule` | **`"boundary"`** | same rule as training labels; `"centroid"` on the frozen arms |
 | `Post.hullLink` | **128 px** | seed hull pairwise bound, cross-fitted over 64–256; 0 turns it off, as on the frozen arms ([results](results/2026-09-30-seed-hull-d.md)) |
+| `Post.noPointCache` | **`<Output>/cv/probcache_seedless`** | the seedless network's CV `P`; `""` turns stage 9 off, as on the frozen arms |
+| `Post.noPointTau` | **0.40** | cross-fitted on the images with 1–3 points; 0.30–0.90 all within 0.011 on the targets ([results](results/2026-11-12-seedless-fallback.md)) |
 
 ## Running it
 
@@ -429,7 +475,8 @@ unchanged. The port matches MATLAB to within 0.005 IoU on the 69 images, 5-fold 
 ([results/2026-11-05-colab-parity-cv.md](results/2026-11-05-colab-parity-cv.md)).
 
 **The adopted fold networks are PyTorch, and MATLAB does not load them.** Their `P` is the
-cache at `<Output>/cv/probcache`, copied from the run in `<Output>/colab_bcedice/`. The caches
+cache at `<Output>/cv/probcache`, copied from the run in `<Output>/colab_bcedice/`; the
+seedless network's is `<Output>/cv/probcache_seedless`, copied from `<Output>/colab_seedless/`. The caches
 it replaced stay where they were made: `<Output>/colab_budget/` (the 2026-11-07 schedule on the
 replica U-Net) and `result/archive/cv_matlab_until_2026-11-10/` (MATLAB). `run_cache` is how
 this configuration is scored, and `run_cv` refuses it.
@@ -608,14 +655,19 @@ contending for one laptop GPU is slower than serial.
   **Re-fitted on the adopted recipe's `P`** jointly with `relaxFloor` (7 × 5 cells): +0.0004
   cross-fitted, CI [−0.003, +0.003], so both stay. Lower is better on both axes in-sample,
   by at most 0.004 ([results/2026-11-11-tau-floor-refit.md](results/2026-11-11-tau-floor-refit.md)).
-- **`299.png` and `445.png` have broken detector points** (445's is a copy of 443's) and
-  score ≈ 0. Re-localize them in the upstream stage; see [Seed tolerance](#seed-tolerance).
+- **`299.png` and `445.png` were upstream detector bugs** (445's only point was a copy of
+  443's; the standardized CSVs give it none). `299` still scores ≈ 0 on its stray points.
+  `445` now gets the seedless mask, but the seedless network finds nothing in its lesion
+  (`P` = 0.000 inside the GT), so it scores 0 too. Re-localize both upstream.
+- **A seedless `P` finds lesion the seeded one misses.** On the 66 images with points, 6.4 %
+  of GT pixels are above 0.5 only in the seedless `P`, at 0.21 % of background pixels. Fusing
+  the two maps is untested ([results/2026-11-12-seedless-fallback.md](results/2026-11-12-seedless-fallback.md)).
 - **The balanced-sampling gain is unverified.** Every cross-validated arm used it.
 - **A trained CV costs about 5 h** on a Colab L4 (73–85 s per epoch, 40 epochs, 5 folds), and
   about 18 h for a frozen arm in MATLAB. Any post-`P` change scores off the cache with
   `run_cache` instead.
 - **68 ground-truth images** is still thin for a U-Net;
   [briefs/design-study.md](briefs/design-study.md) suggests pretraining on ROSE or OCTA-500.
-- **A seedless `P` (tiles over the whole frame) failed its pilot gate**; the likely cause is
-  `1 − generalizedDice` on all-background crops, so fix the loss before revisiting
-  ([results/2026-09-17-seedless.md](results/2026-09-17-seedless.md)).
+- **The 2026-09-17 seedless pilot failed** on `1 − generalizedDice` with tiles; the adopted
+  loss and a pretrained encoder fixed that, and the seedless network is now stage 9
+  ([results/2026-09-17-seedless.md](results/2026-09-17-seedless.md), [results/2026-11-12-seedless-fallback.md](results/2026-11-12-seedless-fallback.md)).

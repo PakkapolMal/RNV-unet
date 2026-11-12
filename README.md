@@ -4,7 +4,8 @@ Segments retinal neovascularization (RNV) lesions in OCTA en-face images, starti
 localization points an upstream detector emits. A seed-conditioned U-Net (ImageNet-pretrained
 EfficientNet-B3 encoder, trained in PyTorch) predicts a
 probability map `P`; the mask is `P > 0.5`, a relaxed threshold around seeds `P` left
-empty, seed claiming, and a seed hull that fills between nearby seeds. MATLAB R2026a.
+empty, seed claiming, and a seed hull that fills between nearby seeds. An image with no
+points at all is segmented by a second, seedless network. MATLAB R2026a.
 
 ## Current result
 
@@ -12,22 +13,27 @@ Out-of-sample, 5-fold cross-validation, **69 images** (DRAC22 42 + TUH 27) from 
 standardized `datasets/` (not included, see Data), every image scored, whole-image scoring, current
 configuration (`cnngvf.defaults()`: a pretrained EfficientNet-B3 U-Net trained by the PyTorch
 trainer with CE + Dice loss and affine + CLAHE augmentation, 40 epochs with cosine decay and
-last-epoch output; seed hull link 128 px, relax floor 0.20):
+last-epoch output; seed hull link 128 px, relax floor 0.20; a seedless network for the
+images with no points):
 
 | | n | mean IoU | median | F1 | precision | recall |
 |---|---|---|---|---|---|---|
-| **all images** | 69 | **0.6125** | 0.6494 | 0.7273 | 0.7418 | 0.7348 |
-| DRAC22 | 42 | 0.5404 | | 0.6585 | 0.6960 | 0.6471 |
+| **all images** | 69 | **0.6364** | 0.6694 | 0.7535 | 0.7667 | 0.7625 |
+| DRAC22 | 42 | 0.5797 | | 0.7015 | 0.7368 | 0.6926 |
 | TUH | 27 | 0.7245 | | 0.8343 | 0.8131 | 0.8713 |
 
 Post-processing settings were fixed on the earlier 68-image data and the replica U-Net's `P`;
 re-fitting `tau` and `relaxFloor` on this `P` gained nothing (+0.0004 cross-fitted). The network recipe passed a pre-registered margin gate
 against the previous configuration (+0.087 IoU, CI [+0.056, +0.118]); it was trained once,
 so the figure carries the training noise floor of about ±0.015. Six DRAC22 images have no
-usable localization point and score 0; the mean over the other 63 (0.6668) is a labelled
-secondary figure only. Previous: 0.5256 (replica U-Net, 2026-11-07), 0.5047 (MATLAB trainer).
-Source: [docs/results/2026-11-11-paper-recipe.md](docs/results/2026-11-11-paper-recipe.md); per
-image: [docs/results/reference/2026-11-11-paper-recipe-69.csv](docs/results/reference/2026-11-11-paper-recipe-69.csv),
+usable localization point. The three with no points at all go to the seedless network, which
+passed its own gate (+0.024 on this table; `082` 0.79, `217` 0.86, `445` 0); the three with
+stray points score ≈ 0. The mean over the 63 with a usable seed (0.6668) is a labelled
+secondary figure only. Previous: 0.6125 (no seedless network, 2026-11-11), 0.5256 (replica
+U-Net, 2026-11-07), 0.5047 (MATLAB trainer). Sources:
+[docs/results/2026-11-11-paper-recipe.md](docs/results/2026-11-11-paper-recipe.md) and
+[docs/results/2026-11-12-seedless-fallback.md](docs/results/2026-11-12-seedless-fallback.md); per
+image: [docs/results/reference/2026-11-12-seedless-fallback-69.csv](docs/results/reference/2026-11-12-seedless-fallback-69.csv),
 which `run_cache` checks against. This table is the only place the current number is quoted;
 update it here when it changes.
 
@@ -103,6 +109,7 @@ MIT, see [LICENSE](LICENSE). The license covers the code and documents here, not
 | [2026-11-10 budget P](docs/results/2026-11-10-train-budget-pmaps.md) | why does the budget help? (69 images, 5-fold CV `P`, post hoc) | `P` is more decisive (undecided area −0.086 on 61/66 images); gain sits on spill (+0.061) and under-coverage (+0.052); deep misses (`P` < 0.2 in GT) untouched |
 | [2026-11-11 recipe](docs/results/2026-11-11-paper-recipe.md) | pretrained EfficientNet-B3 U-Net, CE + Dice, affine + CLAHE, one bundle? (69 images, 5-fold CV, PyTorch) | **adopted: 0.6125**, +0.087 CI [+0.056, +0.118] by a margin gate; spill ×2.20 → ×1.17, under-coverage ×0.52 → ×0.86 |
 | [2026-11-11 refit](docs/results/2026-11-11-tau-floor-refit.md) | re-fit `tau` × `relaxFloor` on the new `P`? (69 images, 5-fold CV, cross-fitted) | no: +0.0004 CI [−0.003, +0.003]; folds disagree; both stay |
+| [2026-11-12 seedless](docs/results/2026-11-12-seedless-fallback.md) | a seedless network for the 3 images with no points? (69 images, 5-fold CV, rule cross-fitted on the 18 images with 1–3 points) | **adopted: 0.6364**, +0.024; targets 0.550 mean IoU (`445` still 0), proxy 0.467 |
 
 ## History
 
@@ -114,6 +121,7 @@ Code for rejected or superseded work is kept as tags rather than as switches in 
 | `archive/levelset-master` | `master` as the best GVF + DRLSE version |
 | `archive/reduce-refine` | the refinement code: `run_refine`, cross-fitting, seed features, TTA |
 | `archive/seedless-prob` | the seedless `P` arm and tiled inference |
+| `archive/seedless-fallback` | `run_seedless_fit`: the no-point rule's cross-fit, and its top-1 keep option |
 | `archive/relax-grid` | `run_relax_grid`: relax window × floor, cross-fitted off the CV cache |
 | `archive/seed-hull` | `cnngvf.seedHull`: triangle fill and closing between linked seeds, after claiming |
 | `archive/seed-hull-claim` | the seed hull's same-claim rule and the no-disk fallback switch |

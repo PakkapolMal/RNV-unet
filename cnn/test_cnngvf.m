@@ -16,6 +16,7 @@ testPatchGeometry(cfg);
 testMaskFromProb(cfg);
 testSeedComponents(cfg);
 testSeedHull(cfg);
+testNoPointMask(cfg);
 testProbCache(cfg);
 testRunCache(cfg);
 testDomain(cfg);
@@ -217,6 +218,24 @@ far = seeds; far(3, :) = [100 + d/2, 100 + 1.2*d];   % one edge longer than d
 assert(isequal(m2, mask), 'a triangle with an edge beyond hullLink was filled');
 
 fprintf('  seed hull                 ok (triangle, long edge, lone seed, off)\n');
+end
+
+
+function testNoPointMask(cfg)
+% With no seeds to claim, every component above the threshold and MinArea is
+% kept, and a speck below MinArea is dropped.
+P = zeros(300);
+P(21:60, 21:60)     = 0.9;    % 1 600 px at 0.9
+P(101:180, 101:180) = 0.6;    % 6 400 px at 0.6
+P(241:250, 241:250) = 1.0;    % 100 px: below MinArea
+cfg.Post.noPointTau = 0.5;
+m = cnngvf.noPointMask(P, cfg);
+assert(nnz(m) == 1600 + 6400, 'kept %d px, want 8000', nnz(m));
+cfg.Post.noPointTau = 0.7;
+m = cnngvf.noPointMask(P, cfg);
+assert(nnz(m) == 1600, 'at 0.7 kept %d px, want the 1600 px blob', nnz(m));
+assert(~any(cnngvf.noPointMask(zeros(50), cfg), 'all'), 'empty P gave a mask');
+fprintf('  no-point mask             ok (threshold, MinArea)\n');
 end
 
 

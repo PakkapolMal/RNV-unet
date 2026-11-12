@@ -19,8 +19,8 @@ function outDir = run_export(cfg, outDir)
 %                        values, one network forward pass and one whole-image P
 %                        (CPU), each produced by the MATLAB code itself
 %
-%  The recipe the trainer runs (encoder, epochsCv, learnRate, lrMin, miniBatch)
-%  comes from cfg.Net,
+%  The recipe the trainer runs (encoder, epochsCv, learnRate, lrMin, miniBatch,
+%  and the seedless network's seedless*) comes from cfg.Net,
 %  so a bundle exported before a recipe change trains the old one: re-export.
 %
 %  .mat v7, which scipy.io.loadmat reads. Strings are saved as cellstr for the
@@ -66,6 +66,9 @@ b.lrMin       = cfg.Net.lrMin;
 b.miniBatch   = cfg.Net.miniBatch;
 b.inferBatch  = cfg.Net.inferBatch;
 b.learnRate   = cfg.Net.learnRate;
+b.seedlessEpochs    = cfg.Net.seedlessEpochs;
+b.seedlessMiniBatch = cfg.Net.seedlessMiniBatch;
+b.seedlessCopies    = cfg.Net.seedlessCopies;
 b.exported    = char(datetime('now', 'Format', 'yyyy-MM-dd HH:mm:ss'));
 save(fullfile(outDir, 'bundle.mat'), '-struct', 'b', '-v7');
 

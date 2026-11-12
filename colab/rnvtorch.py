@@ -2,6 +2,7 @@
 
     python rnvtorch.py train <bundle> <run_root> --fold F --rng R [--epochs N]
                              [--stop-after N] [--workers N]
+    python rnvtorch.py train-seedless ...   (same options: the seedless network)
 
 trains one fold, checkpointing every epoch to <run_root>/fold<F>/ and resuming
 from there when rerun, then writes the fold's held-out P to <run_root>/probcache/.
@@ -238,21 +239,27 @@ def affine_matrix(p, rot, scale, shear):
     return np.hstack([A, (c - A @ c)[:, None]]).astype(np.float32)
 
 
-def affine_clahe(X, fg, rand):
+def affine_clahe(X, fg, rand, tiles=4, shift=0.0):
     """Affine (p 0.75) on every channel, the heat-map included so it moves with
     the image, then CLAHE (p 0.5) on the intensity channel. 4 x 4 tiles on 512 px
-    are the manuscript's 8 x 8 on the 1024 px frame. rand() is U(0, 1) from torch."""
+    are the manuscript's 8 x 8 on the 1024 px frame. shift > 0 adds a translation
+    of up to shift x size per axis, drawn only then, so the seeded patches' draws
+    are unchanged. rand() is U(0, 1) from torch."""
     import cv2
     p = X.shape[0]
     if rand() < 0.75:
         M = affine_matrix(p, 30 * rand() - 15, 0.9 + 0.2 * rand(), 10 * rand() - 5)
+        if shift > 0:
+            M[:, 2] += shift * p * (2 * np.array([rand(), rand()], np.float32) - 1)
         X = cv2.warpAffine(X, M, (p, p), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101)
         fg = cv2.warpAffine(fg.astype(np.uint8), M, (p, p), flags=cv2.INTER_NEAREST,
                             borderMode=cv2.BORDER_REFLECT_101) > 0
+        if X.ndim == 2:  # cv2 drops a single channel's axis
+            X = X[:, :, None]
     if rand() < 0.5:
         X = X.copy()
         u8 = np.clip(np.round(X[:, :, 0] * 255), 0, 255).astype(np.uint8)
-        X[:, :, 0] = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4)).apply(u8) / np.float32(255)
+        X[:, :, 0] = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(tiles, tiles)).apply(u8) / np.float32(255)
     return X, fg
 
 
@@ -286,6 +293,14 @@ def infer_prob_map(chans, seeds, model, p, sigma, batch, device):
         P[ix] += pn[sub].astype(np.float64) * win[sub]
         W[ix] += win[sub]
     return P / np.maximum(W, np.finfo(float).eps)
+
+
+@torch.no_grad()
+def infer_frame(chans, model, device):
+    """Seedless P: the whole frame in one pass (docs/results/2026-11-12-seedless-fallback.md)."""
+    model.eval()
+    X = torch.from_numpy(np.ascontiguousarray(chans.transpose(2, 0, 1))[None]).to(device)
+    return model(X)[0, 1].double().cpu().numpy()
 
 
 def write_prob_cache(cache_dir, name, P, fold, **meta):
@@ -344,6 +359,33 @@ class PatchSet(torch.utils.data.Dataset):
         return X, T
 
 
+class FrameSet(torch.utils.data.Dataset):
+    """Seedless training: one whole frame per row, every lesion as target.
+    Flips, then affine_clahe with translation and 8 x 8 tiles."""
+
+    def __init__(self, images, rows, augment):
+        self.images, self.rows, self.augment = images, rows, augment
+
+    def __len__(self):
+        return len(self.rows)
+
+    def __getitem__(self, i):
+        im = self.images[self.rows[i]]
+        X, fg = im["chans"].astype(np.float32), im["label"] > 0
+        if self.augment:
+            if torch.rand(1) < 0.5:
+                X, fg = np.fliplr(X), np.fliplr(fg)
+            if torch.rand(1) < 0.5:
+                X, fg = np.flipud(X), np.flipud(fg)
+            X, fg = affine_clahe(np.ascontiguousarray(X), np.ascontiguousarray(fg),
+                                 lambda: float(torch.rand(1)), tiles=8, shift=0.05)
+        X = torch.from_numpy(np.ascontiguousarray(X.transpose(2, 0, 1)))
+        T = torch.from_numpy(np.stack([~fg, fg]).astype(np.float32))
+        return X, T
+
+
+
+
 def channel_stats(loader):
     """trainnet's zerocenter statistic: per-channel mean over one pass of the
     training data, augmentation included; and the SD, which SmpNet
@@ -357,7 +399,8 @@ def channel_stats(loader):
     return mean.float(), (sq / n - mean.square()).clamp_min(0).sqrt().float()
 
 
-def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, workers=0, device=None):
+def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, workers=0, device=None,
+               seedless=False):
     """Train one fold, resuming from <run_root>/fold<k>/ckpt.pt.
 
     SmpNet(cfg.encoder) and ce_dice_loss; cfg.epochsCv epochs of Adam at
@@ -370,6 +413,11 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
     augmentation). Returns the trained model, or None when stop_after stopped
     it early.
 
+    seedless trains the whole-frame network for images with no points
+    instead: SmpNet with intensity only, every non-test image cfg.seedlessCopies
+    times per epoch (FrameSet), cfg.seedlessEpochs and cfg.seedlessMiniBatch, P
+    from infer_frame (docs/results/2026-11-12-seedless-fallback.md).
+
     rng seeds every random draw: the patch list, the decoder's initial weights,
     jitter, flips, the affine, CLAHE, shuffle order and dropout. It is not a localization seed. The GPU
     arithmetic is not deterministic, so the same rng does not repeat a run
@@ -381,15 +429,27 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
     cfg, images, folds = load_bundle(root)
     fold = folds[fold_no - 1]
     assert "encoder" in cfg, "bundle predates the adopted recipe: re-run run_export"
-    epochs = int(epochs or cfg["epochsCv"])
+    assert not seedless or "seedlessCopies" in cfg, "bundle predates the seedless network: re-run run_export"
+    epochs = int(epochs or (cfg["seedlessEpochs"] if seedless else cfg["epochsCv"]))
     lr, lr_min, mb = float(cfg["learnRate"]), float(cfg["lrMin"]), int(cfg["miniBatch"])
+    if seedless:
+        mb, copies = int(cfg["seedlessMiniBatch"]), int(cfg["seedlessCopies"])
     out = Path(run_root) / f"fold{fold_no}"
     out.mkdir(parents=True, exist_ok=True)
     ckpt = out / "ckpt.pt"
     opts = dict(epochs=epochs, lr=lr, lr_min=lr_min, miniBatch=mb, encoder=str(cfg["encoder"]))
+    if seedless:
+        opts.update(seedless=True, copies=copies)
 
-    train = training_rows(cfg, images, fold)
-    model = SmpNet(str(cfg["encoder"])).to(device)
+    if seedless:
+        held = set(fold["test"])
+        train = [n for n in images if n not in held]
+        dataset = lambda rows: FrameSet(images, rows, True)
+    else:
+        train = training_rows(cfg, images, fold)
+        dataset = lambda rows: PatchSet(cfg, images, rows, True)
+    cin = next(iter(images.values()))["chans"].shape[2] + (0 if seedless else 1)
+    model = SmpNet(str(cfg["encoder"]), cin).to(device)
     # Decay conv weights only: "weight" also names BatchNorm scales.
     decay = [p for p in model.parameters() if p.ndim > 1]
     no_decay = [p for p in model.parameters() if p.ndim <= 1]
@@ -412,18 +472,18 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
         print(f"fold {fold_no}: resuming after epoch {done}")
     else:
         torch.manual_seed(rng)
-        rows = epoch_rows(cfg, train, np.random.default_rng(rng))
-        once = torch.utils.data.DataLoader(PatchSet(cfg, images, rows, True), batch_size=16,
-                                           num_workers=workers)
+        rows = (train * copies if seedless
+                else epoch_rows(cfg, train, np.random.default_rng(rng)))
+        once = torch.utils.data.DataLoader(dataset(rows), batch_size=16, num_workers=workers)
         mean, sd = channel_stats(once)
         with torch.no_grad():
             model.mean.copy_(mean.to(device))
             model.sd.copy_(sd.to(device))
         done = 0
-    print(f"fold {fold_no}: {len(train)} seeds, {len(rows)} patches/epoch, "
+    print(f"fold {fold_no}: {len(train)} {'images' if seedless else 'seeds'}, {len(rows)} samples/epoch, "
           f"mean {np.round(model.mean.cpu().numpy(), 4)} (MATLAB {np.round(fold['mean'], 4)}), {device}")
 
-    train_loader = torch.utils.data.DataLoader(PatchSet(cfg, images, rows, True), batch_size=mb, shuffle=True,
+    train_loader = torch.utils.data.DataLoader(dataset(rows), batch_size=mb, shuffle=True,
                                                drop_last=True, num_workers=workers, persistent_workers=workers > 0)
     log = out / "log.csv"
     for epoch in range(done + 1, epochs + 1):
@@ -462,7 +522,8 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
     p, sigma, batch = int(cfg["patch"]), float(cfg["sigmaSeed"]), int(cfg["inferBatch"])
     for name in fold["test"]:
         im = images[name]
-        P = infer_prob_map(im["chans"], im["seeds"], model, p, sigma, batch, device)
+        P = (infer_frame(im["chans"], model, device) if seedless
+             else infer_prob_map(im["chans"], im["seeds"], model, p, sigma, batch, device))
         write_prob_cache(Path(run_root) / "probcache", name, P, fold_no, arm=str(cfg["arm"]),
                          netFile=f"PyTorch fold {fold_no} rng {rng} epoch {epochs} {opts}")
     print(f"fold {fold_no}: done, P written for {len(fold['test'])} held-out images")
@@ -471,7 +532,7 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["train"])
+    ap.add_argument("cmd", choices=["train", "train-seedless"])
     ap.add_argument("bundle")
     ap.add_argument("run_root")
     ap.add_argument("--fold", type=int, required=True)
@@ -480,4 +541,5 @@ if __name__ == "__main__":
     ap.add_argument("--stop-after", type=int)
     ap.add_argument("--workers", type=int, default=0)
     a = ap.parse_args()
-    train_fold(a.bundle, a.run_root, a.fold, a.rng, a.epochs, a.stop_after, a.workers)
+    train_fold(a.bundle, a.run_root, a.fold, a.rng, a.epochs, a.stop_after, a.workers,
+               seedless=a.cmd == "train-seedless")
