@@ -160,7 +160,7 @@ cfg.CV.probCache = "";
 % The per-image record run_cache compares against: the adopted configuration's
 % cross-validated scores. A new adoption adds a new file here; old ones stay.
 cfg.CV.reference = fullfile(fileparts(mainDir), 'docs', 'results', 'reference', ...
-    '2026-11-12-seedless-fallback-69.csv');
+    '2026-11-12-fusion-69.csv');
 
 % --- Post-processing -------------------------------------------------------
 % P > tau -> seed fallback -> imclose -> imfill -> seedMasks. See
@@ -192,13 +192,19 @@ cfg.Post.ClaimRule = "boundary";
 % 64-256 and adopted over its precision guard; docs/results/2026-09-30-seed-hull-d.md.
 cfg.Post.hullLink = 128;
 
-% An image with zero localization points takes cnngvf.noPointMask of the
-% seedless network's P, read from noPointCache; "" = off, and such an image
-% predicts nothing (the frozen arms). noPointTau was cross-fitted on the images
+% The seedless network's CV P, used twice: an image with zero localization
+% points takes cnngvf.noPointMask of it (stage 9), and every other image fuses
+% it in with cnngvf.fuseSeedless (stage 4a). "" = both off, as on the frozen
+% arms. noPointTau was cross-fitted on the images
 % with 1-3 points; 0.3-0.9 all score within 0.011 on the targets.
 % docs/results/2026-11-12-seedless-fallback.md.
-cfg.Post.noPointCache = fullfile(cfg.Paths.Output, 'cv', 'probcache_seedless');
+cfg.Post.seedlessCache = fullfile(cfg.Paths.Output, 'cv', 'probcache_seedless');
 cfg.Post.noPointTau   = 0.40;
+
+% Stage 4a: seedless P above fuseTauS enters the seeded P by pixel max. 0.9 won
+% the tie against 0.5 (0.0009 apart) and was then fixed before the replication;
+% docs/results/2026-11-12-fusion-confirm.md.
+cfg.Post.fuseTauS = 0.9;
 
 % --- Hardware --------------------------------------------------------------
 % gpuDevice sees CUDA devices only; an integrated GPU busy in Task Manager is

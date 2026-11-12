@@ -5,10 +5,14 @@ kind: implementation-brief
 audience: Claude Code
 target: RNV-Claude/cnn, MATLAB R2026a
 depends-on: results/2026-11-12-fusion-weak-seeds.md, results/2026-11-12-seedless-fallback.md, results/2026-11-10-train-budget-pmaps.md
-status: pre-registered 2026-11-12, not yet run
+status: executed 2026-11-12
 ---
 
 # Fusing the Seedless P Where the Seeded P Is Uncertain
+
+> **Executed brief.** Kept as written. Outcome: gates 1 and 3 hold, and gate 2 fails.
+> Cross-fitted ΔIoU is +0.0116, CI [+0.0039, +0.0221]. All five folds fuse every image, and
+> they split 3–2 on τ_s: [../results/2026-11-12-fusion-uncertainty.md](../results/2026-11-12-fusion-uncertainty.md).
 
 The image-level arm deferred by [fusion.md](fusion.md).
 

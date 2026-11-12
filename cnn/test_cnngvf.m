@@ -17,6 +17,7 @@ testMaskFromProb(cfg);
 testSeedComponents(cfg);
 testSeedHull(cfg);
 testNoPointMask(cfg);
+testFuseSeedless(cfg);
 testProbCache(cfg);
 testRunCache(cfg);
 testDomain(cfg);
@@ -239,6 +240,24 @@ fprintf('  no-point mask             ok (threshold, MinArea)\n');
 end
 
 
+function testFuseSeedless(cfg)
+% The seedless P enters by pixel max, and only above fuseTauS.
+Pk = zeros(100);
+Pk(21:40, 21:40) = 0.9;
+Pk(61:70, 61:70) = 0.3;
+Ps = zeros(100);
+Ps(41:50, 21:40) = 0.95;          % extends the seeded blob
+Ps(61:70, 61:70) = 0.6;           % below fuseTauS 0.9: ignored
+Ps(21:40, 21:40) = 0.92;          % higher than the seeded 0.9: the max takes 0.92
+cfg.Post.fuseTauS = 0.9;
+Pf = cnngvf.fuseSeedless(Pk, Ps, cfg);
+assert(all(Pf(41:50, 21:40) == 0.95, 'all'), 'seedless extension missing');
+assert(all(Pf(61:70, 61:70) == 0.3, 'all'), 'seedless P below fuseTauS entered');
+assert(all(Pf(21:40, 21:40) == 0.92, 'all'), 'not a pixel max');
+fprintf('  seedless fusion           ok (pixel max above fuseTauS)\n');
+end
+
+
 function testProbCache(cfg)
 % The cache is what makes a post-processing change cost seconds instead of 18 h,
 % so two things about it have to hold: it must not quantize, and it must refuse
@@ -294,7 +313,10 @@ cacheDir = fullfile(tmp, 'probcache');
 cnngvf.probCache("write", cacheDir, img, P, struct('fold', 1, 'arm', "test"));
 
 [names, seeds] = cnngvf.loadPoints(cfg);
-expected = cnngvf.metrics(cnngvf.maskFromProb(double(P), seeds(names == img, :), cfg), gt).iou;
+% The full path, stage 4a included: the real seedless P is fused into the stub.
+Ps = cnngvf.probCache("read", cfg.Post.seedlessCache, img, cfg).P;
+Pf = cnngvf.fuseSeedless(double(P), double(Ps), cfg);
+expected = cnngvf.metrics(cnngvf.maskFromProb(Pf, seeds(names == img, :), cfg), gt).iou;
 
 c = cfg;
 c.Paths.Output  = tmp;
