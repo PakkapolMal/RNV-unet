@@ -28,6 +28,7 @@ The folder was `CNN+GVF/` until 2026-09-25, when the GVF + level-set stages were
   seedMasks.m           split a mask into the component each seed claims
   seedHull.m            fill between nearby seeds after claiming (inter-frond gaps)
   noPointMask.m         an image with no points: its mask from the seedless network's P
+  fuseWeakSeeds.m       experiment: seedless P at the seeds the threshold left empty
   segmentImage.m        all of the above, one image
   probCache.m           per-fold P cache with a leakage guard
   cvFolds.m             deterministic area-stratified folds over the domain
@@ -38,9 +39,10 @@ run_batch.m             segment + score every image (mostly in-sample)
 run_cv.m                k-fold train + score in MATLAB (frozen arms only)
 run_eval.m              re-score cached masks, no GPU
 run_cache.m             score cached cross-validated P, check against the reference
+run_fusion_grid.m       experiment: cross-fit what weak seeds get (docs/briefs/fusion.md)
 run_steps.m             one image, every intermediate written out
 run_export.m            bundle for the PyTorch trainer in ../colab/ (data, folds, weights, fixtures)
-test_cnngvf.m           self-check, 10 checks
+test_cnngvf.m           self-check, 11 checks
 ```
 
 ## Requirements

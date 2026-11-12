@@ -17,6 +17,7 @@ testMaskFromProb(cfg);
 testSeedComponents(cfg);
 testSeedHull(cfg);
 testNoPointMask(cfg);
+testFuseWeakSeeds(cfg);
 testProbCache(cfg);
 testRunCache(cfg);
 testDomain(cfg);
@@ -236,6 +237,41 @@ m = cnngvf.noPointMask(P, cfg);
 assert(nnz(m) == 1600, 'at 0.7 kept %d px, want the 1600 px blob', nnz(m));
 assert(~any(cnngvf.noPointMask(zeros(50), cfg), 'all'), 'empty P gave a mask');
 fprintf('  no-point mask             ok (threshold, MinArea)\n');
+end
+
+
+function testFuseWeakSeeds(cfg)
+% Seed 1 stands on confident seeded P, so it is not weak and nothing changes
+% around it. Seed 2 is weak (seeded P 0.3); the seedless P sees its lesion.
+Pk = zeros(400);
+Pk(41:80, 41:80) = 0.9;
+Pk(281:320, 281:320) = 0.3;
+Ps = zeros(400);
+Ps(271:330, 271:330) = 0.95;     % 3 600 px under seed 2
+Ps(41:80, 101:140) = 0.95;       % beside seed 1: must stay unused
+seeds = [60 60; 300 300];         % [cx cy]
+
+cfg.Post.weakSeed = "relax";
+[Pf, st] = cnngvf.fuseWeakSeeds(Pk, Ps, seeds, cfg);
+assert(isequal(Pf, Pk) && isequal(st, [0; 0]), 'relax changed P');
+
+cfg.Post.weakSeed = "seedlessFirst";
+cfg.Post.weakSeedTau = 0.9;
+[Pf, st] = cnngvf.fuseWeakSeeds(Pk, Ps, seeds, cfg);
+assert(isequal(st, [0; 1]), 'seedlessFirst status %s', mat2str(st));
+assert(nnz(Pf == 1) == 3600 && Pf(300, 300) == 1, 'seedlessFirst did not set the component to 1');
+assert(isequal(Pf(41:80, 101:140), Pk(41:80, 101:140)), 'seedlessFirst touched a non-weak seed');
+
+cfg.Post.weakSeedTau = 0.99;     % the seedless P no longer clears tau_s: relax keeps the seed
+[Pf, st] = cnngvf.fuseWeakSeeds(Pk, Ps, seeds, cfg);
+assert(isequal(Pf, Pk) && isequal(st, [0; 2]), 'tau_s did not gate the seedless P');
+
+cfg.Post.weakSeed = "maxRelax";
+cfg.Post.weakSeedTau = 0.9;
+[Pf, st] = cnngvf.fuseWeakSeeds(Pk, Ps, seeds, cfg);
+assert(isequal(st, [0; 1]) && Pf(300, 300) == 0.95 && Pf(275, 275) == 0.95, 'maxRelax did not take the max');
+assert(isequal(Pf(41:80, 101:140), Pk(41:80, 101:140)), 'maxRelax reached outside weak windows');
+fprintf('  weak-seed fusion          ok (relax, seedlessFirst, tau_s gate, maxRelax)\n');
 end
 
 
