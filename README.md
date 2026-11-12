@@ -103,6 +103,7 @@ MIT, see [LICENSE](LICENSE). The license covers the code and documents here, not
 | [2026-11-10 budget P](docs/results/2026-11-10-train-budget-pmaps.md) | why does the budget help? (69 images, 5-fold CV `P`, post hoc) | `P` is more decisive (undecided area −0.086 on 61/66 images); gain sits on spill (+0.061) and under-coverage (+0.052); deep misses (`P` < 0.2 in GT) untouched |
 | [2026-11-11 recipe](docs/results/2026-11-11-paper-recipe.md) | pretrained EfficientNet-B3 U-Net, CE + Dice, affine + CLAHE, one bundle? (69 images, 5-fold CV, PyTorch) | **adopted: 0.6125**, +0.087 CI [+0.056, +0.118] by a margin gate; spill ×2.20 → ×1.17, under-coverage ×0.52 → ×0.86 |
 | [2026-11-11 refit](docs/results/2026-11-11-tau-floor-refit.md) | re-fit `tau` × `relaxFloor` on the new `P`? (69 images, 5-fold CV, cross-fitted) | no: +0.0004 CI [−0.003, +0.003]; folds disagree; both stay |
+| [2026-11-12 seedless](docs/results/2026-11-12-seedless-fallback.md) | a seedless network for the 3 images with no points? (69 images, 5-fold CV, rule cross-fitted on the 18 images with 1–3 points) | **passes its gate: 0.6364**, +0.024; targets 0.550 mean IoU (`445` still 0), proxy 0.467; not yet adopted |
 
 ## History
 

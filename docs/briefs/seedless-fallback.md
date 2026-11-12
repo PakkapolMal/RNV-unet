@@ -5,10 +5,14 @@ kind: implementation-brief
 audience: Claude Code
 target: RNV-Claude/colab (seedless trainer), Colab L4 (user runs), RNV-Claude/cnn (the no-point rule, its cross-fit)
 depends-on: results/2026-11-11-paper-recipe.md, results/2026-11-11-tau-floor-refit.md, results/2026-09-17-seedless.md
-status: pre-registered 2026-11-11, not yet run
+status: executed 2026-11-12
 ---
 
 # Seedless Fallback for Images with No Localization Points
+
+> **Executed brief.** Kept as written. Outcome: all three gates hold. The targets score 0.550
+> mean IoU, the proxy 0.467 cross-fitted, and the 66 other images are unchanged; the headline
+> goes from 0.6125 to 0.6364: [../results/2026-11-12-seedless-fallback.md](../results/2026-11-12-seedless-fallback.md).
 
 Supersedes arm C of the local brief `paper-adoption.md`. This brief adds the threshold and
 component rule, which that one fixed at `tau`.
