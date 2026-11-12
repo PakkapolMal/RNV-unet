@@ -111,6 +111,7 @@ MIT, see [LICENSE](LICENSE). The license covers the code and documents here, not
 | [2026-11-11 refit](docs/results/2026-11-11-tau-floor-refit.md) | re-fit `tau` × `relaxFloor` on the new `P`? (69 images, 5-fold CV, cross-fitted) | no: +0.0004 CI [−0.003, +0.003]; folds disagree; both stay |
 | [2026-11-12 seedless](docs/results/2026-11-12-seedless-fallback.md) | a seedless network for the 3 images with no points? (69 images, 5-fold CV, rule cross-fitted on the 18 images with 1–3 points) | **adopted: 0.6364**, +0.024; targets 0.550 mean IoU (`445` still 0), proxy 0.467 |
 | [2026-11-12 fusion](docs/results/2026-11-12-fusion-weak-seeds.md) | bring the seedless `P` in at weak seeds, before relax? (69 images, 5-fold CV, cross-fitted) | no: +0.0010 CI [−0.0007, +0.0028]; 90 % of weak seeds have no seedless component either; relax stays |
+| [2026-11-12 fusion U](docs/results/2026-11-12-fusion-uncertainty.md) | fuse the seedless `P` on images whose seeded `P` is unsure? (69 images, 5-fold CV, cross-fitted) | +0.0116 CI [+0.004, +0.022], but gate 2 fails: all 5 folds fuse every image and split 3–2 on τ_s; half the gain is `795` and `461`; not adopted, pending decision |
 
 ## History
 
