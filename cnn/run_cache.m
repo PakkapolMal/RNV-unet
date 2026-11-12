@@ -48,7 +48,7 @@ for i = 1:n
     c = cnngvf.probCache("read", cacheDir, images(i), cfg);
     s = seeds(names == images(i), :);
     if isempty(s) && strlength(cfg.Post.noPointCache) > 0
-        % No points: the seedless network's mask (docs/briefs/seedless-fallback.md).
+        % No points: the seedless network's mask (docs/results/2026-11-12-seedless-fallback.md).
         c = cnngvf.probCache("read", cfg.Post.noPointCache, images(i), cfg);
         [mask, perSeed] = deal(cnngvf.noPointMask(double(c.P), cfg), {});
     else

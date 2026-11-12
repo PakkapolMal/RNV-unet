@@ -124,6 +124,11 @@ cfg.Net.epochs       = 30;   % MATLAB trainer only (frozen arms); run_cv uses 20
 cfg.Net.miniBatch    = 8;
 cfg.Net.inferBatch   = 4;    % patches per predict() call at inference
 cfg.Net.learnRate    = 1e-4;
+% The seedless network (rnvtorch.py train-seedless, cnngvf.noPointMask): whole
+% frames, intensity only, each training image seedlessCopies times per epoch.
+cfg.Net.seedlessEpochs    = 60;
+cfg.Net.seedlessMiniBatch = 4;
+cfg.Net.seedlessCopies    = 10;
 if batchStartupOptionUsed
     cfg.Net.plots = "none";
 else
@@ -155,7 +160,7 @@ cfg.CV.probCache = "";
 % The per-image record run_cache compares against: the adopted configuration's
 % cross-validated scores. A new adoption adds a new file here; old ones stay.
 cfg.CV.reference = fullfile(fileparts(mainDir), 'docs', 'results', 'reference', ...
-    '2026-11-11-paper-recipe-69.csv');
+    '2026-11-12-seedless-fallback-69.csv');
 
 % --- Post-processing -------------------------------------------------------
 % P > tau -> seed fallback -> imclose -> imfill -> seedMasks. See
@@ -187,12 +192,13 @@ cfg.Post.ClaimRule = "boundary";
 % 64-256 and adopted over its precision guard; docs/results/2026-09-30-seed-hull-d.md.
 cfg.Post.hullLink = 128;
 
-% EXPERIMENT (docs/briefs/seedless-fallback.md): an image with zero
-% localization points takes cnngvf.noPointMask of its seedless P, read from
-% noPointCache; "" = off, and such an image predicts nothing.
-cfg.Post.noPointCache = "";
-cfg.Post.noPointTau   = 0.5;
-cfg.Post.noPointKeep  = "all";
+% An image with zero localization points takes cnngvf.noPointMask of the
+% seedless network's P, read from noPointCache; "" = off, and such an image
+% predicts nothing (the frozen arms). noPointTau was cross-fitted on the images
+% with 1-3 points; 0.3-0.9 all score within 0.011 on the targets.
+% docs/results/2026-11-12-seedless-fallback.md.
+cfg.Post.noPointCache = fullfile(cfg.Paths.Output, 'cv', 'probcache_seedless');
+cfg.Post.noPointTau   = 0.40;
 
 % --- Hardware --------------------------------------------------------------
 % gpuDevice sees CUDA devices only; an integrated GPU busy in Task Manager is

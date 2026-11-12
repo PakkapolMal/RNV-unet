@@ -9,8 +9,8 @@ Stage 2 runs every fold's MATLAB weights through the PyTorch network, checks one
 patch and one whole-image P against MATLAB's CPU, and writes P to <cache_out>
 for run_cache to score. Stage 3 checks the augmentation's warp moves the
 heat-map with the image, then smoke-runs the trainer on one fold.
-stage3-seedless does the same for the seedless experiment
-(docs/briefs/seedless-fallback.md).
+stage3-seedless does the same for the seedless network
+(docs/results/2026-11-12-seedless-fallback.md).
 """
 import sys
 from pathlib import Path
@@ -175,7 +175,7 @@ def stage3_seedless(root, run_root, workers):
     assert [int(r["epoch"]) for r in log] == [1, 2], f"epochs logged {[r['epoch'] for r in log]}"
     ck = torch.load(Path(run_root) / "fold1" / "ckpt.pt", weights_only=False)
     n_train = len(images) - len(fold["test"])
-    assert len(ck["rows"]) == n_train * rt.SEEDLESS["copies"], f"{len(ck['rows'])} frames/epoch"
+    assert len(ck["rows"]) == n_train * int(cfg["seedlessCopies"]), f"{len(ck['rows'])} frames/epoch"
     assert ck["opts"].get("seedless"), "checkpoint is not the seedless network's"
     assert float(log[1]["train_loss"]) < float(log[0]["train_loss"]), "training loss did not fall"
     cache = list((Path(run_root) / "probcache").glob("*.mat"))
@@ -184,7 +184,7 @@ def stage3_seedless(root, run_root, workers):
         P = sio.loadmat(c)["P"]
         assert P.shape == (1024, 1024) and np.isfinite(P).all() and 0 <= P.min() and P.max() <= 1, c.name
     secs = np.mean([float(r["seconds"]) for r in log])
-    epochs = rt.SEEDLESS["epochs"]
+    epochs = int(cfg["seedlessEpochs"])
     print(f"  smoke          ok (resume, {len(ck['rows'])} frames/epoch, loss {float(log[0]['train_loss']):.4f} -> "
           f"{float(log[1]['train_loss']):.4f}, P for {len(cache)} images)")
     print(f"  {secs:.0f} s/epoch on {torch.cuda.get_device_name() if torch.cuda.is_available() else 'cpu'}: "

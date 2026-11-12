@@ -58,6 +58,7 @@ cfg.Net.miniBatch     = 2;
 cfg.Net.learnRate     = 1e-3;
 
 cfg.CV.reference = "";   % frozen arms have no reference on master
+cfg.Post.noPointCache = "";   % the seedless fallback came after every frozen arm
 cfg.CV.ModelArm = a.cvModelArm;
 if strlength(cfg.CV.ModelArm) == 0
     cfg.CV.ModelArm = cfg.Arm;

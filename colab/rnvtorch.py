@@ -2,7 +2,7 @@
 
     python rnvtorch.py train <bundle> <run_root> --fold F --rng R [--epochs N]
                              [--stop-after N] [--workers N]
-    python rnvtorch.py train-seedless ...   (same options; experiment, see SEEDLESS)
+    python rnvtorch.py train-seedless ...   (same options: the seedless network)
 
 trains one fold, checkpointing every epoch to <run_root>/fold<F>/ and resuming
 from there when rerun, then writes the fold's held-out P to <run_root>/probcache/.
@@ -297,7 +297,7 @@ def infer_prob_map(chans, seeds, model, p, sigma, batch, device):
 
 @torch.no_grad()
 def infer_frame(chans, model, device):
-    """Seedless P: the whole frame in one pass (docs/briefs/seedless-fallback.md)."""
+    """Seedless P: the whole frame in one pass (docs/results/2026-11-12-seedless-fallback.md)."""
     model.eval()
     X = torch.from_numpy(np.ascontiguousarray(chans.transpose(2, 0, 1))[None]).to(device)
     return model(X)[0, 1].double().cpu().numpy()
@@ -384,9 +384,6 @@ class FrameSet(torch.utils.data.Dataset):
         return X, T
 
 
-# Experiment constants for the seedless network (docs/briefs/seedless-fallback.md);
-# on adoption they move to cfg.Net and the bundle.
-SEEDLESS = dict(epochs=60, miniBatch=4, copies=10)
 
 
 def channel_stats(loader):
@@ -416,10 +413,10 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
     augmentation). Returns the trained model, or None when stop_after stopped
     it early.
 
-    seedless trains the experiment's whole-frame network instead: SmpNet with
-    intensity only, every non-test image SEEDLESS["copies"] times per epoch
-    (FrameSet), SEEDLESS's epochs and minibatch, P from infer_frame
-    (docs/briefs/seedless-fallback.md).
+    seedless trains the whole-frame network for images with no points
+    instead: SmpNet with intensity only, every non-test image cfg.seedlessCopies
+    times per epoch (FrameSet), cfg.seedlessEpochs and cfg.seedlessMiniBatch, P
+    from infer_frame (docs/results/2026-11-12-seedless-fallback.md).
 
     rng seeds every random draw: the patch list, the decoder's initial weights,
     jitter, flips, the affine, CLAHE, shuffle order and dropout. It is not a localization seed. The GPU
@@ -432,16 +429,17 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
     cfg, images, folds = load_bundle(root)
     fold = folds[fold_no - 1]
     assert "encoder" in cfg, "bundle predates the adopted recipe: re-run run_export"
-    epochs = int(epochs or (SEEDLESS["epochs"] if seedless else cfg["epochsCv"]))
+    assert not seedless or "seedlessCopies" in cfg, "bundle predates the seedless network: re-run run_export"
+    epochs = int(epochs or (cfg["seedlessEpochs"] if seedless else cfg["epochsCv"]))
     lr, lr_min, mb = float(cfg["learnRate"]), float(cfg["lrMin"]), int(cfg["miniBatch"])
     if seedless:
-        mb = SEEDLESS["miniBatch"]
+        mb, copies = int(cfg["seedlessMiniBatch"]), int(cfg["seedlessCopies"])
     out = Path(run_root) / f"fold{fold_no}"
     out.mkdir(parents=True, exist_ok=True)
     ckpt = out / "ckpt.pt"
     opts = dict(epochs=epochs, lr=lr, lr_min=lr_min, miniBatch=mb, encoder=str(cfg["encoder"]))
     if seedless:
-        opts.update(seedless=True, copies=SEEDLESS["copies"])
+        opts.update(seedless=True, copies=copies)
 
     if seedless:
         held = set(fold["test"])
@@ -474,7 +472,7 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
         print(f"fold {fold_no}: resuming after epoch {done}")
     else:
         torch.manual_seed(rng)
-        rows = (train * SEEDLESS["copies"] if seedless
+        rows = (train * copies if seedless
                 else epoch_rows(cfg, train, np.random.default_rng(rng)))
         once = torch.utils.data.DataLoader(dataset(rows), batch_size=16, num_workers=workers)
         mean, sd = channel_stats(once)

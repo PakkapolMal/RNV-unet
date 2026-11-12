@@ -150,6 +150,12 @@ isolated seed-fallback disk beside the lesion's main body. A prediction
 failure, unlike a frond, which is a shape of the lesion itself.
 _Avoid_: frond (for a prediction piece), island, blob
 
+**Seedless Network**:
+A second network that sees the whole frame with no seed input. It segments only the
+images with no localization points at all, where the seed-conditioned network has nothing
+to answer.
+_Avoid_: unseeded model, fallback network (the seed fallback is a different thing)
+
 **Seed Hull**:
 The region between seeds that lie close together, added to the mask after claiming. It
 recovers inter-frond gaps where detections bracket them. It covers only the inside of the

@@ -222,21 +222,20 @@ end
 
 
 function testNoPointMask(cfg)
-% With no seeds to claim, top-1 must keep the blob with the most P mass, not
-% the largest or the brightest, and MinArea must drop a speck either way.
+% With no seeds to claim, every component above the threshold and MinArea is
+% kept, and a speck below MinArea is dropped.
 P = zeros(300);
-P(21:60, 21:60)     = 0.9;    % 1 600 px at 0.9: mass 1 440
-P(101:180, 101:180) = 0.6;    % 6 400 px at 0.6: mass 3 840, the strongest
+P(21:60, 21:60)     = 0.9;    % 1 600 px at 0.9
+P(101:180, 101:180) = 0.6;    % 6 400 px at 0.6
 P(241:250, 241:250) = 1.0;    % 100 px: below MinArea
 cfg.Post.noPointTau = 0.5;
-cfg.Post.noPointKeep = "all";
 m = cnngvf.noPointMask(P, cfg);
-assert(nnz(m) == 1600 + 6400, 'keep all: %d px, want 8000', nnz(m));
-cfg.Post.noPointKeep = "top1";
+assert(nnz(m) == 1600 + 6400, 'kept %d px, want 8000', nnz(m));
+cfg.Post.noPointTau = 0.7;
 m = cnngvf.noPointMask(P, cfg);
-assert(nnz(m) == 6400 && m(140, 140), 'top1 kept %d px, want the 6400 px blob', nnz(m));
+assert(nnz(m) == 1600, 'at 0.7 kept %d px, want the 1600 px blob', nnz(m));
 assert(~any(cnngvf.noPointMask(zeros(50), cfg), 'all'), 'empty P gave a mask');
-fprintf('  no-point mask             ok (all, top-1 by P mass, MinArea)\n');
+fprintf('  no-point mask             ok (threshold, MinArea)\n');
 end
 
 
