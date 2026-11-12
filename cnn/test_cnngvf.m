@@ -17,6 +17,7 @@ testMaskFromProb(cfg);
 testSeedComponents(cfg);
 testSeedHull(cfg);
 testNoPointMask(cfg);
+testFuseUncertain(cfg);
 testProbCache(cfg);
 testRunCache(cfg);
 testDomain(cfg);
@@ -236,6 +237,38 @@ m = cnngvf.noPointMask(P, cfg);
 assert(nnz(m) == 1600, 'at 0.7 kept %d px, want the 1600 px blob', nnz(m));
 assert(~any(cnngvf.noPointMask(zeros(50), cfg), 'all'), 'empty P gave a mask');
 fprintf('  no-point mask             ok (threshold, MinArea)\n');
+end
+
+
+function testFuseUncertain(cfg)
+% U counts unsure pixels against confident ones; fusion takes the max of the
+% two maps only above the cut and only where the seedless P clears tau_s.
+Pk = zeros(200);
+Pk(21:60, 21:60) = 0.9;           % 1 600 confident px
+Pk(101:120, 101:140) = 0.5;       % 800 unsure px (also >= 0.5)
+Pk(151:160, 1:40) = 0.3;          % 400 unsure px
+U = cnngvf.seededUncertainty(Pk);
+assert(abs(U - 1200 / 2400) < 1e-12, 'U = %g, want 0.5', U);
+assert(cnngvf.seededUncertainty(zeros(10)) == 0, 'U of an empty P');
+
+Ps = zeros(200);
+Ps(61:70, 21:60) = 0.95;          % extends the confident blob
+Ps(181:190, 181:190) = 0.6;       % below tau_s 0.9: ignored
+cfg.Post.fuseTauS = 0.9;
+cfg.Post.fuseCut = Inf;
+[Pf, f] = cnngvf.fuseUncertain(Pk, Ps, cfg);
+assert(~f && isequal(Pf, Pk), 'off changed P');
+cfg.Post.fuseCut = 0.6;           % U 0.5 is below the cut
+[Pf, f] = cnngvf.fuseUncertain(Pk, Ps, cfg);
+assert(~f && isequal(Pf, Pk), 'fused below the cut');
+cfg.Post.fuseCut = 0.5;           % at the cut: fuse
+[Pf, f] = cnngvf.fuseUncertain(Pk, Ps, cfg);
+assert(f && all(Pf(61:70, 21:60) == 0.95, 'all') && all(Pf(181:190, 181:190) == 0, 'all'), ...
+    'fusion did not take the max above tau_s');
+cfg.Post.fuseCut = -Inf;          % every image
+[~, f] = cnngvf.fuseUncertain(zeros(10), zeros(10), cfg);
+assert(f, '-Inf did not fuse');
+fprintf('  uncertainty fusion        ok (U, cut, tau_s, -Inf)\n');
 end
 
 

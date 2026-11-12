@@ -200,6 +200,13 @@ cfg.Post.hullLink = 128;
 cfg.Post.noPointCache = fullfile(cfg.Paths.Output, 'cv', 'probcache_seedless');
 cfg.Post.noPointTau   = 0.40;
 
+% EXPERIMENT (docs/briefs/fusion-uncertainty.md): an image with points whose
+% seeded P is unsure (cnngvf.seededUncertainty >= fuseCut) takes the pixel max
+% of its seeded P and the seedless P above fuseTauS (cnngvf.fuseUncertain).
+% Inf = off; -Inf fuses every image with points.
+cfg.Post.fuseCut  = Inf;
+cfg.Post.fuseTauS = 0.9;
+
 % --- Hardware --------------------------------------------------------------
 % gpuDevice sees CUDA devices only; an integrated GPU busy in Task Manager is
 % desktop rendering, not this pipeline. GpuName goes into every run record.

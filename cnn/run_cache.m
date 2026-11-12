@@ -52,7 +52,13 @@ for i = 1:n
         c = cnngvf.probCache("read", cfg.Post.noPointCache, images(i), cfg);
         [mask, perSeed] = deal(cnngvf.noPointMask(double(c.P), cfg), {});
     else
-        [mask, perSeed] = cnngvf.maskFromProb(double(c.P), s, cfg);
+        P = double(c.P);
+        if cfg.Post.fuseCut < Inf
+            % Unsure seeded P reads the seedless P too (docs/briefs/fusion-uncertainty.md).
+            cs = cnngvf.probCache("read", cfg.Post.noPointCache, images(i), cfg);
+            P = cnngvf.fuseUncertain(P, double(cs.P), cfg);
+        end
+        [mask, perSeed] = cnngvf.maskFromProb(P, s, cfg);
     end
     results(i) = struct('image', images(i), 'seeds', s, 'perSeed', {perSeed}, 'mask', mask);
     elapsed(i) = toc(t);

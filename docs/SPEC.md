@@ -439,6 +439,7 @@ archives any existing network with a timestamp before saving.
 | `Post.ClaimRule` | **`"boundary"`** | same rule as training labels; `"centroid"` on the frozen arms |
 | `Post.hullLink` | **128 px** | seed hull pairwise bound, cross-fitted over 64–256; 0 turns it off, as on the frozen arms ([results](results/2026-09-30-seed-hull-d.md)) |
 | `Post.noPointCache` | **`<Output>/cv/probcache_seedless`** | the seedless network's CV `P`; `""` turns stage 9 off, as on the frozen arms |
+| `Post.fuseCut`, `fuseTauS` | **`Inf`** (off), 0.9 | **experiment, branch `exp/fusion-uncertainty`:** an image with points whose `cnngvf.seededUncertainty` is at least `fuseCut` takes the pixel max of its seeded `P` and the seedless `P` above `fuseTauS` (`cnngvf.fuseUncertain`); `-Inf` fuses every image ([briefs/fusion-uncertainty.md](briefs/fusion-uncertainty.md)) |
 | `Post.noPointTau` | **0.40** | cross-fitted on the images with 1–3 points; 0.30–0.90 all within 0.011 on the targets ([results](results/2026-11-12-seedless-fallback.md)) |
 
 ## Running it
