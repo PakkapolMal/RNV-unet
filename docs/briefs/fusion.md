@@ -1,135 +1,143 @@
 ---
-title: Fusing the Seeded and Seedless P
-description: Pre-registered post-P arm. On the 66 images with points, the seedless network's P is fused into the seeded P before the unchanged pipeline (threshold, relax, claiming, hull). A GT-free agreement score between the two networks' masks decides which images get the fusion. Operators, thresholds, cross-fit, prediction and gate written before any run.
+title: Fusing the Seedless P at Weak Seeds
+description: Pre-registered post-P arm. At the seeds the seeded network left empty (weak seeds), the seedless network's P either gives the outline first or is fused with the seeded P, with the relax fallback kept as the backstop. Variants, thresholds, cross-fit, prediction and gate written before any run.
 kind: implementation-brief
 audience: Claude Code
 target: RNV-Claude/cnn, MATLAB R2026a
-depends-on: results/2026-11-12-seedless-fallback.md, results/2026-11-11-paper-recipe.md, results/2026-11-11-tau-floor-refit.md
-status: pre-registered 2026-11-12, not yet run
+depends-on: results/2026-11-12-seedless-fallback.md, results/2026-11-11-tau-floor-refit.md, results/2026-09-16-reduce.md
+status: pre-registered 2026-11-12 (amended the same day, before any run), not yet run
 ---
 
-# Fusing the Seeded and Seedless P
+# Fusing the Seedless P at Weak Seeds
+
+> **Amended 2026-11-12, before any run.** The first version triggered fusion per image on the
+> agreement A = Dice(seeded mask, seedless mask) and fused the whole image (operators `max`,
+> `mean`, `replace` × `t` ∈ {0.3, 0.5, 0.7, always}).
+>
+> **Why it was replaced:**
+> - A compares two predictions, so it says nothing about which one is right.
+> - It also falls when the seedless network marks blobs far from any seed, which claiming
+>   removes anyway.
+>
+> **What replaces it:** the trigger is now the **weak seed**, a direct, GT-free sign that the
+> seeded network did not see the lesion at that seed. Fusion acts only in the window of a weak
+> seed. An image-level trigger on seeded uncertainty (U) is deferred to a later brief.
 
 ## Why
 
-Two out-of-fold probability maps now exist for every image, from networks that fail
-differently ([2026-11-12](../results/2026-11-12-seedless-fallback.md)):
-- the **seeded** `P` (`cv/probcache`): seed-conditioned and claimed by seeds. It is strong on
-  large TUH lesions, which seeded patches tile;
-- the **seedless** `P` (`cv/probcache_seedless`): the whole frame with no seed input. Alone it
-  scores lower (0.520 DRAC22, 0.473 TUH), but on the 66 images with points **6.4 % of GT
-  pixels are above 0.5 only in the seedless `P`**, at a cost of 0.21 % of background pixels.
+**Two out-of-fold probability maps exist for every image** ([2026-11-12](../results/2026-11-12-seedless-fallback.md)):
+- the seeded `P` (`cv/probcache`);
+- the seedless `P` (`cv/probcache_seedless`), almost binary. For the median image, only 17.5 %
+  of its non-zero pixels lie between 0.1 and 0.9.
 
-That 6.4 % is lesion the seeded pipeline misses. The deep misses, where seeded `P` < 0.2 inside
-the GT, are the one failure the last two adoptions did not reach
-([2026-11-10](../results/2026-11-10-train-budget-pmaps.md)).
+On the 66 images with points, 6.4 % of GT pixels are above 0.5 only in the seedless `P`.
 
-**Seeds still decide what survives.** The fused `P` goes through the unchanged pipeline, so a
-seedless blob that no seed claims is dropped by claiming, as any other is. This is what keeps
-the fusion from importing the seedless network's whole-frame false positives.
+**A weak seed is a seed the threshold left empty:** the seeded `P` at the seed pixel is at most
+`tau` (0.5). These are exactly the seeds the relax fallback serves today: it thresholds the
+seeded `P` again at 0.20 within ±128 px and takes the component under the seed, or a 15 px disk
+if that finds nothing of `MinArea`. In the current caches, **156 of 871 seeds (17.9 %) are
+weak, on 47 of the 66 images with points.**
 
-**No training.** Both caches exist and are out-of-fold with the same folds, so every cell scores
-off the caches in seconds and carries no training noise.
+Their outline comes from a map that was unsure at the seed. The seedless network saw the same
+place without the seed, and its map is decisive. It may outline the lesion where relax gives
+only part of it.
 
-## The trigger: why not "seeded Dice < 0.5"
+**Seeds still decide what survives:** the variants change `P` only near weak seeds, and
+claiming and the hull run unchanged.
 
-The obvious rule is to fall back to the seedless network where the seeded result is poor: for
-example, where the seeded Dice is below 0.5. **That Dice is computed against GT, so it is
-unknown at inference.** A rule using it would be leakage: it would pick, per image, whichever
-map scores better, and the score it reports is an oracle.
+**No training:** both caches exist and are out-of-fold with the same folds. Every cell scores
+off the caches with no training noise.
 
-**The GT-free stand-in is agreement between the two networks.** Let `M_k` be the seeded
-pipeline's mask (the current configuration) and `M_s` the seedless mask at the adopted cell
-(`noPointMask`, `tau` 0.40). Then
-
-    A = Dice(M_k, M_s) = 2 |M_k ∩ M_s| / (|M_k| + |M_s|)
-
-is known at inference, uses no GT, and is high where the two networks see the same lesion.
-Where they disagree, at least one is wrong, and fusing lets claiming arbitrate. **"Agreement
-< 0.5" is the legal form of the suggested rule.**
-
-0.5 is one value in the grid below, not a fixed choice: the threshold is cross-fitted.
-Whether low agreement actually marks poor seeded images is reported as a description, not
-assumed.
+**Scope:**
+- all 69 images (DRAC22 42, TUH 27) are scored;
+- the variants can change only the 47 images with a weak seed;
+- the 3 images with no points keep their stage 9 mask in every cell.
 
 ## Arm
 
-For each image **with points** whose agreement `A` is below `t`, replace the seeded `P` with a
-fused `P_f`, then run `cnngvf.maskFromProb` unchanged (`tau` 0.5, relax 0.20 in 128 px,
-`MinArea` 500, boundary claiming, hull 128). Images with `A ≥ t`, and the 3 images with no
-points (stage 9), are unchanged.
+Weak seeds are found on the seeded `P` alone, as the pipeline finds them today. Each variant
+turns (seeded `P`, seedless `P`) into one map `P_f`, and `cnngvf.maskFromProb` then runs
+unchanged on `P_f`: `tau` 0.5, relax 0.20 within 128 px, `MinArea` 500, boundary claiming,
+hull 128.
 
-**Operators:**
-
-| operator | `P_f` | what it does |
+| variant | `P_f` | relax 0.20 |
 |---|---|---|
-| `max` | max(`P_k`, `P_s`) | adds what either network sees; the recall-heavy choice |
-| `mean` | (`P_k` + `P_s`) / 2 | the networks vote; outside the seeded patches (`P_k` = 0) it cannot cross 0.5 unless `P_s` = 1, so it mostly reshapes lesions the seeds already reach |
-| `replace` | `P_s` | the suggested fallback: the seedless map, still claimed by the seeds |
+| **relax only** (default: the current pipeline) | the seeded `P` | the fallback for every weak seed |
+| **seedless first** | the seeded `P`, plus `P_f` = 1 on the seedless component under each weak seed: seedless `P` > τ_s within ±128 px, 8-connected through the seed pixel, kept if at least `MinArea` | the backstop, for weak seeds with no such component |
+| **max, then relax** | within ±128 px of each weak seed, max(seeded `P`, seedless `P` where it exceeds τ_s, else 0); the seeded `P` elsewhere | runs on `P_f`, for weak seeds still empty |
 
-**Grid:** operator × `t` ∈ {0.3, 0.5, 0.7, **always**} (always means every image with
-points), plus the default **off**: 13 cells.
+**Seedless entry threshold** τ_s ∈ {0.5, 0.9}. Below τ_s the seedless `P` is not used. 0.9
+admits only confident seedless pixels.
+
+**Grid:** the default plus {seedless first, max then relax} × {0.5, 0.9}: 5 cells.
+
+The window, rounding, connectivity and `MinArea` test are relax's own, so "seedless first"
+differs from relax only in the map it reads and its threshold.
 
 ## Selection (cross-fitting)
 
-The rule of the earlier cross-fits:
-- for each fold, choose the cell with the best mean IoU over the other four folds' images;
-- score it on the held-out fold;
-- ties within 0.001 go to **off**, then to the more conservative cell: lower `t` first, then
-  `mean`, `max`, `replace`.
-
-The fixed-cell surface is description only.
+- For each fold, choose the cell with the best mean IoU over the other four folds' images, and
+  score it on the held-out fold.
+- Ties within 0.001 go to the default, then to the more conservative cell (τ_s 0.9 before 0.5,
+  then "seedless first" before "max, then relax").
+- The fixed-cell surface is description only.
 
 ## Protocol
 
-- 69 images (DRAC22 42, TUH 27), the two adopted 5-fold CV caches, whole-image scoring.
-- Paired per image against **off**, which must reproduce
-  `reference/2026-11-12-seedless-fallback-69.csv` to ~1e-15 (sanity check).
-- Percentile bootstrap on the mean Δ: 10 000 resamples, `rng(20260917)`, 95 % CI.
+- 69 images, the two adopted 5-fold CV caches, whole-image scoring by `run_cache`.
+- **Sanity check:** the default cell reproduces
+  `reference/2026-11-12-seedless-fallback-69.csv` to ~1e-15.
+- Paired per image against the default. Percentile bootstrap on the mean Δ: 10 000 resamples,
+  `rng(20260917)`, 95 % CI.
 - Quintiles by GT area, Q1 smallest, 14/14/14/14/13.
-- **Runner:** `run_fusion_grid` (experiment code). It reads both caches through
-  `cnngvf.probCache` (the leakage guard on both), computes `A` per image, and scores every cell.
+- **Code:**
+  - `cnngvf.fuseWeakSeeds(Pk, Ps, seeds, cfg)` builds `P_f`, with experiment fields
+    `cfg.Post.weakSeed` (`"relax"`, `"seedlessFirst"`, `"maxRelax"`) and
+    `cfg.Post.weakSeedTau` (τ_s);
+  - `run_cache` reads the seedless cache for images with points only when `weakSeed` is not
+    `"relax"`;
+  - the runner is `run_fusion_grid` (experiment code).
 
 ## Prediction (written before running)
 
-- **`max` on every image** raises Q4–Q5 recall and costs Q1–Q3 precision. Net ΔIoU is
-  −0.005 to +0.010.
-- **Gating by agreement helps.** The best cells are `max` or `mean` at `t` 0.5–0.7.
-- **`replace` loses** at every `t`. The seedless network alone is 0.25 IoU below the seeded
-  pipeline on TUH.
-- **Cross-fitted ΔIoU +0.000 to +0.012,** with the CI likely touching 0. Folds split between
-  two neighbouring cells.
-- **Agreement and seeded IoU correlate** (Spearman 0.3–0.6 over the 66 images), so the
-  stand-in partly works.
-- I give the gate about 30 %.
+- **Both variants raise recall on the lesions behind weak seeds,** which are the under-covered
+  ones.
+- **"Seedless first" at τ_s 0.9 is the best cell.** A near-binary seedless component gives a
+  fuller outline than relax at 0.20, and 0.9 limits spill. "Max, then relax" is close behind.
+- **Cross-fitted ΔIoU +0.003 to +0.015,** with the CI likely above 0 at the low end. At least 4
+  of 5 folds choose "seedless first".
+- **Q1–Q3 precision falls by 0.000–0.008,** inside the guard. The risk is a seedless component
+  that runs into a neighbouring non-lesion area.
+- **Relax stays as the backstop.** I expect a minority of weak seeds (20–40 %) to find no
+  seedless component and still take the relax outline.
+- I give the gate about 40 %.
 
 ## Gate
 
 Adopt a cell only if all three hold:
 
-1. The cross-fitted ΔIoU against off has a 95 % CI lower bound above 0.
+1. The cross-fitted ΔIoU against the default has a 95 % CI lower bound above 0.
 2. At least 4 of 5 folds choose the same cell. That cell ships.
 3. **Precision guard:** on the cross-fitted masks, Q1–Q3 precision falls by no more than 0.01.
-   Fusion adds pixels, so this is the binding guard. Q4–Q5 recall is reported alongside.
+   Q4–Q5 recall is reported alongside.
 
-**Otherwise** nothing changes. Tag the runner `archive/fusion`, delete it, and record the
+**Otherwise** relax stays as it is. Tag the code `archive/fusion`, delete it, and record the
 result.
 
 **On adoption:**
-- `cnngvf.fuseProb` becomes a stage before `maskFromProb`, with `cfg.Post.fusion` (operator)
-  and `cfg.Post.fusionAgreement` (`t`);
+- `cnngvf.fuseWeakSeeds` becomes a stage before `maskFromProb`, with the chosen variant and
+  τ_s as defaults; the switch for the losing variant goes;
 - `run_cache` reads both caches;
-- a new reference CSV, `cfg.CV.reference`, the README table, and SPEC (stage, fields, the
-  pipeline diagram).
+- a new reference CSV, `cfg.CV.reference`, the README table, and SPEC (stage 5, the pipeline
+  diagram, the fields).
 
 ## Report alongside, as description
 
-- the 13-cell surface (IoU, precision, recall), per dataset;
+- the 5-cell surface (IoU, precision, recall), per dataset;
 - each fold's choice;
-- the distribution of `A` over the 66 images, and its rank correlation with the seeded IoU
-  (that correlation uses GT, so it is a diagnostic of the stand-in, never an input);
-- **an oracle bound, labelled as one:** per image, the better of off and the best operator,
-  chosen with GT. It caps what any agreement rule could gain;
-- precision and recall by quintile, cross-fitted against off.
+- for each cell: how many weak seeds took a seedless component, and how many fell to relax and
+  to the disk;
+- precision and recall by quintile, cross-fitted against the default;
+- per-image movement: the largest gains and losses.
 
 **Valid until either `P` changes.**
