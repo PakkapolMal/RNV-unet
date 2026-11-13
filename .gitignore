@@ -1,5 +1,7 @@
 datasets/
 CLAUDE.md
+.claude/
+skills-lock.json
 # Kept locally, not published: they hold or quote other team members' results.
 docs/peer_reference/
 docs/results/*peer-comparison*
