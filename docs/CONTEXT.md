@@ -141,12 +141,14 @@ _Avoid_: prediction, output, softmax, confidence map
 **Seed Fallback**:
 What a seed gets when the threshold left it with nothing — about 30% of seeds, for whom
 it *is* the output. Currently **relax**: threshold `P` once at a low floor near the seed
-and take the component under it; a small disk only when that finds nothing claimable.
+and take the component under it. When that finds nothing claimable the seed gets no
+shape of its own and claims the nearest component; the small disk it used to get was dropped
+on 2026-11-13.
 _Avoid_: rescue, backup, default mask
 
 **Fragment**:
 A disconnected piece of the predicted mask within one lesion, such as an
-isolated seed-fallback disk beside the lesion's main body. A prediction
+isolated seed-fallback disk beside the lesion's main body (before 2026-11-13). A prediction
 failure, unlike a frond, which is a shape of the lesion itself.
 _Avoid_: frond (for a prediction piece), island, blob
 

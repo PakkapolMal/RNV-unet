@@ -24,7 +24,7 @@ The folder was `CNN+GVF/` until 2026-09-25, when the GVF + level-set stages were
   inferProbMap.m        batched patch inference + windowed stitch -> P
   maskFromProb.m        P -> mask: threshold, fallback, morphology, claiming, seed hull
   seedFallback.m        relax (or disk) for seeds the threshold missed
-  seedDisks.m           the disk, relax's floor
+  seedDisks.m           the disk, for "disk" mode (frozen arms)
   seedMasks.m           split a mask into the component each seed claims
   seedHull.m            fill between nearby seeds after claiming (inter-frond gaps)
   noPointMask.m         an image with no points: its mask from the seedless network's P

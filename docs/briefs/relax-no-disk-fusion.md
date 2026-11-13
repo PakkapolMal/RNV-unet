@@ -5,10 +5,18 @@ kind: implementation-brief
 audience: Claude Code
 target: RNV-Claude/cnn, MATLAB R2026a
 depends-on: results/2026-09-18-relax-no-disk.md, results/2026-10-01-seed-hull-claim.md, results/2026-11-12-fusion-confirm.md
-status: pre-registered 2026-11-13
+status: executed 2026-11-13
 ---
 
 # Relax Without the Disk, Under Fusion
+
+> **Executed brief.** Kept as written. The arm as specified (no disk, no claim) failed both
+> gates: ΔIoU +0.0026, CI [−0.0059, +0.0126]; Δrecall −0.0205.
+>
+> **Amendment, after scoring.** The first implementation skipped only the disk, so the seed
+> still claimed the nearest component. That variant scored ΔIoU +0.0120, CI [+0.0009, +0.0258],
+> Δrecall −0.0024. The user adopted it. It was not pre-registered, and +0.0104 of its gain is
+> three images: [../results/2026-11-13-relax-no-disk-fusion.md](../results/2026-11-13-relax-no-disk-fusion.md).
 
 ## Why
 

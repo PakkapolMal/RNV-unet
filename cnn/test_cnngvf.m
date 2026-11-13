@@ -110,12 +110,14 @@ assert(nnz(relaxed) > nnz(disked), ...
      'blob that peaks below tau'], nnz(relaxed), nnz(disked));
 assert(~relaxed(30, 230), 'relax leaked to an unrelated background location');
 
-% A seed with genuinely nothing near it keeps the recall floor under both
-% modes: relax degrades to the disk rather than returning nothing.
+% A seed with genuinely nothing near it: the disk mode plants its disk; relax
+% plants nothing and the seed claims the nearest component instead
+% (docs/results/2026-11-13-relax-no-disk-fusion.md).
 bare = [seeds; 230 30];
-r = cnngvf.maskFromProb(P, bare, rc);
+[r, rs] = cnngvf.maskFromProb(P, bare, rc);
 d = cnngvf.maskFromProb(P, bare, dc);
-assert(r(30, 230), 'relax dropped a seed instead of falling back to the disk');
+assert(~r(30, 230), 'relax planted something at a seed with nothing near it');
+assert(~isempty(rs{end}), 'the unserved seed claimed no component');
 assert(d(30, 230), 'the disk fallback did not plant a disk');
 
 % Post.tau must reach the output, or a tau sweep would measure nothing. Under

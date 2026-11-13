@@ -4,7 +4,7 @@ Segments retinal neovascularization (RNV) lesions in OCTA en-face images, starti
 localization points an upstream detector emits. A seed-conditioned U-Net (ImageNet-pretrained
 EfficientNet-B3 encoder, trained in PyTorch) predicts a
 probability map `P`; the mask is `P > 0.5`, a relaxed threshold around seeds `P` left
-empty, seed claiming, and a seed hull that fills between nearby seeds. A second, seedless
+empty (no disk when that finds nothing), seed claiming, and a seed hull that fills between nearby seeds. A second, seedless
 network sees the whole frame: its confident pixels are fused into every image's `P`, and an
 image with no points at all is segmented by it alone. MATLAB R2026a.
 
@@ -14,14 +14,14 @@ Out-of-sample, 5-fold cross-validation, **69 images** (DRAC22 42 + TUH 27) from 
 standardized `datasets/` (not included, see Data), every image scored, whole-image scoring, current
 configuration (`cnngvf.defaults()`: a pretrained EfficientNet-B3 U-Net trained by the PyTorch
 trainer with CE + Dice loss and affine + CLAHE augmentation, 40 epochs with cosine decay and
-last-epoch output; seed hull link 128 px, relax floor 0.20; a seedless network fused into
+last-epoch output; seed hull link 128 px, relax floor 0.20 with no fallback disk; a seedless network fused into
 every image above 0.9, and segmenting the images with no points):
 
 | | n | mean IoU | median | F1 | precision | recall |
 |---|---|---|---|---|---|---|
-| **all images** | 69 | **0.6484** | 0.6894 | 0.7621 | 0.7636 | 0.7806 |
-| DRAC22 | 42 | 0.5975 | | 0.7144 | 0.7324 | 0.7191 |
-| TUH | 27 | 0.7277 | | 0.8364 | 0.8121 | 0.8762 |
+| **all images** | 69 | **0.6604** | 0.6988 | 0.7726 | 0.7900 | 0.7782 |
+| DRAC22 | 42 | 0.6167 | | 0.7311 | 0.7704 | 0.7194 |
+| TUH | 27 | 0.7285 | | 0.8371 | 0.8205 | 0.8696 |
 
 Post-processing settings were fixed on the earlier 68-image data and the replica U-Net's `P`;
 re-fitting `tau` and `relaxFloor` on this `P` gained nothing (+0.0004 cross-fitted). The network recipe passed a pre-registered margin gate
@@ -31,13 +31,16 @@ usable localization point. The three with no points at all go to the seedless ne
 passed its own gate (+0.024 on this table; `082` 0.79, `217` 0.86, `445` 0); the three with
 stray points score ≈ 0. Fusing the seedless `P` into every image adds +0.012 on this table;
 it replicated at +0.010 on a second seedless network trained for the purpose (CI above 0), and
-about half of it is two very large lesions. The mean over the 63 with a usable seed (0.6799)
-is a labelled secondary figure only. Previous: 0.6364 (no fusion, 2026-11-12), 0.6125 (no
+about half of it is two very large lesions. Dropping relax's fallback disk adds +0.0120, CI
+[+0.0009, +0.0258]. That variant was chosen after scoring, not pre-registered, and +0.0104 of
+it is three images; the other 66 give +0.0017. The mean over the 63 with a usable seed (0.6900)
+is a labelled secondary figure only. Previous: 0.6484 (with the disk, 2026-11-12), 0.6364 (no fusion, 2026-11-12), 0.6125 (no
 seedless network, 2026-11-11), 0.5256 (replica U-Net, 2026-11-07), 0.5047 (MATLAB trainer).
 Sources: [docs/results/2026-11-11-paper-recipe.md](docs/results/2026-11-11-paper-recipe.md),
 [docs/results/2026-11-12-seedless-fallback.md](docs/results/2026-11-12-seedless-fallback.md) and
-[docs/results/2026-11-12-fusion-confirm.md](docs/results/2026-11-12-fusion-confirm.md); per
-image: [docs/results/reference/2026-11-12-fusion-69.csv](docs/results/reference/2026-11-12-fusion-69.csv),
+[docs/results/2026-11-12-fusion-confirm.md](docs/results/2026-11-12-fusion-confirm.md) and
+[docs/results/2026-11-13-relax-no-disk-fusion.md](docs/results/2026-11-13-relax-no-disk-fusion.md); per
+image: [docs/results/reference/2026-11-13-relax-no-disk-69.csv](docs/results/reference/2026-11-13-relax-no-disk-69.csv),
 which `run_cache` checks against. This table is the only place the current number is quoted;
 update it here when it changes.
 
@@ -118,6 +121,7 @@ MIT, see [LICENSE](LICENSE). The license covers the code and documents here, not
 | [2026-11-12 fusion U](docs/results/2026-11-12-fusion-uncertainty.md) | fuse the seedless `P` on images whose seeded `P` is unsure? (69 images, 5-fold CV, cross-fitted) | +0.0116 CI [+0.004, +0.022], but gate 2 fails: all 5 folds fuse every image and split 3–2 on τ_s; half the gain is `795` and `461`; not adopted, pending decision |
 | [2026-11-12 fusion confirm](docs/results/2026-11-12-fusion-confirm.md) | does fusing every image replicate on a second seedless network? (69 images, 5-fold CV, cells fixed before training) | **yes: +0.0104** CI [+0.004, +0.019] (first run +0.0120); the sliver filter loses to plain fusion; **adopted: 0.6484** |
 | [2026-11-12 seedless ensemble](docs/results/2026-11-12-seedless-ensemble.md) | average the two seedless runs for stages 4a and 9? (69 images, 5-fold CV, one fixed cell) | no: +0.0030 CI [−0.004, +0.015]; stage 9 gains (`445` 0 → 0.36), stage 4a loses on the largest lesions; one run stays |
+| [2026-11-13 no disk](docs/results/2026-11-13-relax-no-disk-fusion.md) | drop relax's fallback disk under fusion? (69 images, 5-fold CV, one fixed cell) | pre-registered "no disk, no claim" fails: recall −0.021. **Adopted post hoc: 0.6604**, "no disk, nearest claim", +0.0120 CI [+0.001, +0.026]; +0.0104 of it is `125`, `428`, `299` |
 
 ## History
 
@@ -135,6 +139,7 @@ Code for rejected or superseded work is kept as tags rather than as switches in 
 | `archive/relax-grid` | `run_relax_grid`: relax window × floor, cross-fitted off the CV cache |
 | `archive/seed-hull` | `cnngvf.seedHull`: triangle fill and closing between linked seeds, after claiming |
 | `archive/seed-hull-claim` | the seed hull's same-claim rule and the no-disk fallback switch |
+| `archive/relax-no-disk-fusion` | the no-disk, no-claim switch, re-tested under fusion |
 
 ## How work is recorded
 
