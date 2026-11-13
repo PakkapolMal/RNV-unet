@@ -84,6 +84,7 @@ MIT, see [LICENSE](LICENSE). The license covers the code and documents here, not
 | [`docs/CONTEXT.md`](docs/CONTEXT.md) | glossary: one term, one meaning |
 | [`docs/results/`](docs/results/) | dated measurement records, append-only |
 | [`docs/briefs/`](docs/briefs/) | plans written before the work, kept as written |
+| [`docs/diagrams/`](docs/diagrams/) | training and inference pipeline diagrams (self-contained HTML) |
 | [`docs/THEORY.md`](docs/THEORY.md) | literature and snake/GVF background |
 
 ### Results, oldest first

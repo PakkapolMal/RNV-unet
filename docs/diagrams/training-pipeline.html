@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Training pipeline · Data flow</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --paper: #f5f5f5; --paper-2: #ececec; --ink: #2d3142; --muted: #4f5d75;
+      --soft: #5a6580; --rule: rgba(45,49,66,0.12); --accent: #bf4520;
+      --accent-tint: rgba(191,69,32,0.08); --link: #2e5aa8;
+      --sans: 'Geist', system-ui, sans-serif; --serif: 'Instrument Serif', serif;
+      --mono: 'Geist Mono', ui-monospace, monospace;
+    }
+    body { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 3rem 2rem; background: var(--paper); color: var(--ink); font-family: var(--sans); }
+    .frame { width: 100%; max-width: 1200px; min-width: 0; }
+    .eyebrow { margin-bottom: 0.5rem; color: var(--muted); font: 500 0.66rem var(--mono); letter-spacing: 0.18em; text-transform: uppercase; }
+    h1 { margin-bottom: 1.5rem; color: var(--ink); font: 400 clamp(1.5rem, 2.4vw + 0.75rem, 2rem)/1.15 var(--serif); letter-spacing: -0.02em; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    svg { display: block; width: 100%; min-width: 728px; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+    .step-number, .step-label, .lane-label, .role-text, .legend-label { font-family: var(--mono); text-anchor: middle; }
+    .step-number { fill: var(--ink); font-size: 7px; font-weight: 600; }
+    .step-label { fill: var(--muted); font-size: 7px; font-weight: 500; letter-spacing: 0.12em; }
+    .lane-label { fill: var(--muted); font-size: 8px; font-weight: 500; letter-spacing: 0.14em; }
+    .role-text { fill: var(--ink); font-size: 6px; font-weight: 600; }
+    .node-title { fill: var(--ink); font: 600 9px var(--sans); text-anchor: middle; }
+    .node-sub { fill: var(--muted); font: 400 6.5px var(--mono); text-anchor: middle; }
+    .node-tool { fill: var(--soft); font: 400 6.5px var(--mono); text-anchor: middle; }
+    .focal-text { fill: var(--accent); }
+    .legend-label { fill: var(--muted); font-size: 7px; font-weight: 500; letter-spacing: 0.12em; text-anchor: end; }
+    .legend-text { fill: var(--muted); font: 400 7px var(--sans); }
+  </style>
+</head>
+<body>
+  <main class="frame">
+    <p class="eyebrow">Data flow · RNV segmentation</p>
+    <h1>Training pipeline: two networks, 5-fold CV, scored off cached P</h1>
+
+    <div class="diagram-container">
+    <svg viewBox="0 0 728 356" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="training-pipeline-title training-pipeline-desc">
+      <title id="training-pipeline-title">RNV training pipeline</title>
+      <desc id="training-pipeline-desc">MATLAB exports the standardized datasets as a bundle; on Colab a seed-conditioned and a seedless U-Net each train with 5-fold cross-validation and write held-out probability maps, which MATLAB scores through the pipeline.</desc>
+      <defs>
+        <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="11" cy="11" r="0.8" fill="rgba(45,49,66,0.10)"/></pattern>
+        <marker id="arr-muted" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6 Z" fill="#4f5d75"/></marker>
+        <marker id="arr-accent" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6 Z" fill="#bf4520"/></marker>
+        <marker id="arr-link" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6 Z" fill="#2e5aa8"/></marker>
+      </defs>
+      <rect width="728" height="356" fill="#f5f5f5"/>
+      <rect width="728" height="356" fill="url(#dots)"/>
+      <rect x="0" y="36" width="728" height="80" fill="rgba(45,49,66,0.018)"/>
+      <rect x="0" y="196" width="728" height="80" fill="rgba(45,49,66,0.018)"/>
+
+      <!-- Header and lane structure -->
+      <line x1="0" y1="36" x2="728" y2="36" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="0" y1="116" x2="728" y2="116" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="0" y1="196" x2="728" y2="196" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="0" y1="276" x2="728" y2="276" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="140" y1="36" x2="140" y2="276" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+
+      <g aria-label="Pipeline steps">
+        <rect x="180" y="6" width="32" height="16" rx="8" fill="rgba(45,49,66,0.12)"/><text x="196" y="14" class="step-number">01</text><text x="196" y="29" class="step-label">DATA</text>
+        <rect x="292" y="6" width="32" height="16" rx="8" fill="rgba(45,49,66,0.12)"/><text x="308" y="14" class="step-number">02</text><text x="308" y="29" class="step-label">EXPORT</text>
+        <rect x="404" y="6" width="32" height="16" rx="8" fill="rgba(191,69,32,0.20)"/><text x="420" y="14" class="step-number focal-text">03</text><text x="420" y="29" class="step-label focal-text">TRAIN · 5-FOLD</text>
+        <rect x="516" y="6" width="32" height="16" rx="8" fill="rgba(45,49,66,0.12)"/><text x="532" y="14" class="step-number">04</text><text x="532" y="29" class="step-label">CACHE P</text>
+        <rect x="628" y="6" width="32" height="16" rx="8" fill="rgba(45,49,66,0.12)"/><text x="644" y="14" class="step-number">05</text><text x="644" y="29" class="step-label">SCORE</text>
+      </g>
+
+      <g aria-label="Lanes">
+        <text x="70" y="72" class="lane-label">LOCAL</text><text x="70" y="84" class="lane-label">MATLAB</text>
+        <text x="70" y="152" class="lane-label">COLAB</text><text x="70" y="164" class="lane-label">SEEDED NET</text>
+        <text x="70" y="232" class="lane-label">COLAB</text><text x="70" y="244" class="lane-label">SEEDLESS NET</text>
+      </g>
+
+      <!-- Connectors first. Cross-lane paths use r=8 orthogonal elbows. -->
+      <path d="M246 76 H258" fill="none" stroke="#4f5d75" marker-end="url(#arr-muted)"/>
+      <path d="M358 76 H412 Q420 76 420 84 V124" fill="none" stroke="#4f5d75" marker-end="url(#arr-muted)"/>
+      <path d="M308 108 V228 Q308 236 316 236 H370" fill="none" stroke="#4f5d75" marker-end="url(#arr-muted)"/>
+      <path d="M470 156 H482" fill="none" stroke="#4f5d75" marker-end="url(#arr-muted)"/>
+      <path d="M470 236 H482" fill="none" stroke="#4f5d75" marker-end="url(#arr-muted)"/>
+      <path d="M582 156 H620 Q628 156 628 148 V108" fill="none" stroke="#4f5d75" marker-end="url(#arr-muted)"/>
+      <path d="M582 236 H652 Q660 236 660 228 V108" fill="none" stroke="#4f5d75" marker-end="url(#arr-muted)"/>
+      <rect x="368" y="56" width="36" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="386" y="65" fill="#5a6580" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">BUNDLE</text>
+
+      <!-- Local: Datasets -->
+      <rect x="146" y="44" width="100" height="64" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+      <rect x="150" y="48" width="18" height="10" rx="3" fill="rgba(45,49,66,0.12)"/><text x="159" y="53" class="role-text">MAT</text>
+      <text x="196" y="67" class="node-title">Datasets</text><text x="196" y="79" class="node-sub">69 images · masks</text><text x="196" y="91" class="node-tool">871 points · read-only</text>
+
+      <!-- Local: Export bundle -->
+      <rect x="258" y="44" width="100" height="64" rx="6" fill="#f5f5f5" stroke="rgba(45,49,66,0.25)"/>
+      <rect x="262" y="48" width="18" height="10" rx="3" fill="rgba(45,49,66,0.12)"/><text x="271" y="53" class="role-text">MAT</text>
+      <text x="308" y="67" class="node-title">Export bundle</text><text x="308" y="79" class="node-sub">channels · labels</text><text x="308" y="91" class="node-tool">folds · cfg.Net recipe</text>
+
+      <!-- Colab: seed-conditioned U-Net (focal) -->
+      <rect x="370" y="124" width="100" height="64" rx="6" fill="rgba(191,69,32,0.07)" stroke="#bf4520" stroke-width="1.2"/>
+      <rect x="374" y="128" width="18" height="10" rx="3" fill="rgba(191,69,32,0.20)"/><text x="383" y="133" class="role-text focal-text">SED</text>
+      <text x="420" y="147" class="node-title">Train U-Net</text><text x="420" y="159" class="node-sub">patch + seed heat-map</text><text x="420" y="171" class="node-tool">EffNet-B3 · 40 epochs</text>
+
+      <!-- Colab: seeded P cache -->
+      <rect x="482" y="124" width="100" height="64" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+      <rect x="486" y="128" width="18" height="10" rx="3" fill="rgba(45,49,66,0.12)"/><text x="495" y="133" class="role-text">SED</text>
+      <text x="532" y="147" class="node-title">Seeded P cache</text><text x="532" y="159" class="node-sub">held-out P per fold</text><text x="532" y="171" class="node-tool">cv/probcache</text>
+
+      <!-- Colab: seedless U-Net -->
+      <rect x="370" y="204" width="100" height="64" rx="6" fill="#f5f5f5" stroke="rgba(45,49,66,0.25)"/>
+      <rect x="374" y="208" width="18" height="10" rx="3" fill="rgba(45,49,66,0.12)"/><text x="383" y="213" class="role-text">SLS</text>
+      <text x="420" y="227" class="node-title">Train U-Net</text><text x="420" y="239" class="node-sub">whole 1024² frame</text><text x="420" y="251" class="node-tool">EffNet-B3 · 60 epochs</text>
+
+      <!-- Colab: seedless P cache -->
+      <rect x="482" y="204" width="100" height="64" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+      <rect x="486" y="208" width="18" height="10" rx="3" fill="rgba(45,49,66,0.12)"/><text x="495" y="213" class="role-text">SLS</text>
+      <text x="532" y="227" class="node-title">Seedless P cache</text><text x="532" y="239" class="node-sub">held-out P per fold</text><text x="532" y="251" class="node-tool">cv/probcache_seedless</text>
+
+      <!-- Local: Score -->
+      <rect x="594" y="44" width="100" height="64" rx="6" fill="#f5f5f5" stroke="rgba(45,49,66,0.25)"/>
+      <rect x="598" y="48" width="18" height="10" rx="3" fill="rgba(45,49,66,0.12)"/><text x="607" y="53" class="role-text">MAT</text>
+      <text x="644" y="67" class="node-title">Score pipeline</text><text x="644" y="79" class="node-sub">fusion · claim · IoU</text><text x="644" y="91" class="node-tool">run_cache</text>
+
+      <!-- Legend: steps -->
+      <text x="164" y="293" class="legend-label">STEPS</text>
+      <rect x="180" y="284" width="24" height="12" rx="6" fill="rgba(45,49,66,0.12)"/><text x="192" y="292" class="step-number">01</text><text x="212" y="293" class="legend-text">Data</text>
+      <rect x="260" y="284" width="24" height="12" rx="6" fill="rgba(45,49,66,0.12)"/><text x="272" y="292" class="step-number">02</text><text x="292" y="293" class="legend-text">Export</text>
+      <rect x="348" y="284" width="24" height="12" rx="6" fill="rgba(191,69,32,0.20)"/><text x="360" y="292" class="step-number focal-text">03</text><text x="380" y="293" class="legend-text">Train, 5-fold CV</text>
+      <rect x="472" y="284" width="24" height="12" rx="6" fill="rgba(45,49,66,0.12)"/><text x="484" y="292" class="step-number">04</text><text x="504" y="293" class="legend-text">Cache P</text>
+      <rect x="564" y="284" width="24" height="12" rx="6" fill="rgba(45,49,66,0.12)"/><text x="576" y="292" class="step-number">05</text><text x="596" y="293" class="legend-text">Score</text>
+
+      <!-- Legend: nodes -->
+      <text x="164" y="314" class="legend-label">NODES</text>
+      <rect x="180" y="306" width="16" height="10" rx="3" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/><text x="202" y="314" class="legend-text">Data at rest</text>
+      <rect x="272" y="306" width="16" height="10" rx="3" fill="#f5f5f5" stroke="rgba(45,49,66,0.25)"/><text x="294" y="314" class="legend-text">Step</text>
+      <rect x="332" y="306" width="16" height="10" rx="3" fill="rgba(191,69,32,0.07)" stroke="#bf4520"/><text x="354" y="314" class="legend-text">Seed-conditioned network, the core of the pipeline</text>
+
+      <!-- Legend: notes -->
+      <text x="164" y="336" class="legend-label">NOTE</text>
+      <text x="180" y="336" class="legend-text">Each fold's networks train on the other four folds and write P only for their held-out images; scoring refuses any other P.</text>
+    </svg>
+    </div>
+  </main>
+</body>
+</html>
