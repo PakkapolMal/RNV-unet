@@ -19,7 +19,9 @@ function D = seedFallback(P, seeds, BW, cfg)
 %             plateau. One threshold, not a ladder down to the first component
 %             that clears MinArea - a ladder stops at an arbitrary contour and
 %             lands smaller than the disk. When nothing claimable is found, the
-%             seed gets the disk, so relax never removes the recall floor.
+%             seed gets nothing here and claims the nearest component in
+%             cnngvf.seedMasks; the disk it used to get was 36 % lesion.
+%             docs/results/2026-11-13-relax-no-disk-fusion.md.
 %
 %    "disk"   a disk of cfg.Post.seedRadius at the seed. The frozen arms.
 %
@@ -72,8 +74,6 @@ for s = 1:size(seeds, 1)
 
     if nnz(comp) >= cfg.Post.MinArea
         D(r0:r1, c0:c1) = D(r0:r1, c0:c1) | comp;
-    else
-        D = D | cnngvf.seedDisks([h w], seeds(s, :), BW, cfg);
     end
 end
 end

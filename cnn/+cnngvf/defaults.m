@@ -160,7 +160,7 @@ cfg.CV.probCache = "";
 % The per-image record run_cache compares against: the adopted configuration's
 % cross-validated scores. A new adoption adds a new file here; old ones stay.
 cfg.CV.reference = fullfile(fileparts(mainDir), 'docs', 'results', 'reference', ...
-    '2026-11-12-fusion-69.csv');
+    '2026-11-13-relax-no-disk-69.csv');
 
 % --- Post-processing -------------------------------------------------------
 % P > tau -> seed fallback -> imclose -> imfill -> seedMasks. See
@@ -175,13 +175,15 @@ cfg.Post.MorphElement = strel('disk', 2);
 
 % What a seed the threshold left empty gets - see cnngvf.seedFallback.
 %  "relax"  threshold P once at relaxFloor within relaxWindow px of the seed,
-%           and take the component under it. Falls back to the disk when that
-%           finds nothing claimable. +0.037 IoU over the disk, cross-fitted.
+%           and take the component under it. +0.037 IoU over the disk,
+%           cross-fitted. When that finds nothing claimable the seed claims the
+%           nearest component: no disk since 2026-11-13, +0.0120 IoU, chosen
+%           after scoring (docs/results/2026-11-13-relax-no-disk-fusion.md).
 %  "disk"   a disk of seedRadius. The frozen arms use it.
 cfg.Post.fallbackMode = "relax";
 cfg.Post.relaxWindow  = 128;
 cfg.Post.relaxFloor   = 0.20;   % pre-registered; 0.5061 cross-fitted, 0.5097 fixed
-cfg.Post.seedRadius   = 15;
+cfg.Post.seedRadius   = 15;     % "disk" mode only
 
 % How a seed on background picks a component: "boundary" (nearest pixel of a
 % component, the same rule training labels use) or "centroid" (frozen arms).

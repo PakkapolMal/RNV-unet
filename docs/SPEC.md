@@ -242,8 +242,10 @@ directly, so sweeping it on the scored images and quoting the best is leakage. T
 The fallback is not a rare safety net: **258 of 874 seeds (29.5%, on 34 of 68 images) never
 produce `P > tau`**, so for them the fallback *is* the output. `"relax"` thresholds `P` once
 at `relaxFloor = 0.20` inside a ±128 px window around the seed and takes the component
-under it — the lesion's own outline as the CNN saw it weakly. Only when that finds nothing
-claimable does the seed get a 15 px disk, so relax never removes the recall floor. The
+under it — the lesion's own outline as the CNN saw it weakly. When that finds nothing
+claimable, the seed gets nothing here and claims the nearest component at stage 7. The 15 px
+disk it used to get was 36 % lesion; dropping it adds +0.0120 IoU, a variant adopted after
+scoring ([results/2026-11-13-relax-no-disk-fusion.md](results/2026-11-13-relax-no-disk-fusion.md)). The
 floor was pre-registered and confirmed cross-fitted
 ([results/2026-09-16-reduce.md](results/2026-09-16-reduce.md) §8–9).
 
@@ -460,7 +462,7 @@ archives any existing network with a timestamp before saving.
 | `Post.fallbackMode` | **`"relax"`** | shape from `P` for seeds the threshold missed; `"disk"` on the frozen arms |
 | `Post.relaxFloor` | **0.20** | fixed after the 2026-09-16 sweep; re-tuning it jointly with the window loses 0.0098 cross-fitted ([results](results/2026-09-30-relax-grid.md)), and jointly with `tau` on the adopted `P` gains nothing ([results](results/2026-11-11-tau-floor-refit.md)) |
 | `Post.relaxWindow` | 128 px | stops a low floor flooding a broad plateau; the best of 64 / 128 / 256 / 512 at every floor 0.10–0.25 ([results](results/2026-09-30-relax-grid.md)) |
-| `Post.seedRadius` | 15 px | the disk when relax finds nothing claimable; near-inert under relax: r 0–30 all within 0.0003, 9 images change ([results](results/2026-10-02-minarea-disk.md)) |
+| `Post.seedRadius` | 15 px | `"disk"` mode only, on the frozen arms; relax plants no disk since 2026-11-13 ([results](results/2026-11-13-relax-no-disk-fusion.md)) |
 | `Post.MorphElement` | `strel('disk', 2)` | `imclose` before `imfill` |
 | `Post.MinArea` | 500 px | components below it cannot be claimed; must stay under the smallest component the network fires on (~700 px: `421`, `217`). Cross-fitted over 100–1000 and jointly with `seedRadius`: every fold picks 500 ([results](results/2026-10-02-minarea-disk.md)) |
 | `Post.ClaimRule` | **`"boundary"`** | same rule as training labels; `"centroid"` on the frozen arms |
@@ -707,8 +709,10 @@ contending for one laptop GPU is slower than serial.
   - a more robust decision: more images, or point-less images the arm was not proposed from;
   - an ensemble that keeps each stage's operating point, with its thresholds fixed before
     scoring.
-- **Most weak seeds end on the disk.** Of 156 seeds the threshold leaves empty, 87 find no
-  relax component of `MinArea` and take the 15 px disk; 69 take relax.
+- **Most weak seeds end on an uncapped nearest claim.** Of 156 seeds the threshold leaves
+  empty, 87 find no relax component of `MinArea`. They used to take the 15 px disk; since
+  2026-11-13 they claim the nearest component at any distance. On `125` and `299` that claim
+  is most of the adopted gain. A distance cap is untested.
 - **The balanced-sampling gain is unverified.** Every cross-validated arm used it.
 - **A trained CV costs about 5 h** on a Colab L4 (73–85 s per epoch, 40 epochs, 5 folds), and
   about 18 h for a frozen arm in MATLAB. Any post-`P` change scores off the cache with
