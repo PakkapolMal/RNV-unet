@@ -20,7 +20,8 @@ BW = P > cfg.Post.tau;
 
 % A seed the threshold left with nothing still gets an answer; for ~30% of
 % seeds this is the output.
-BW = BW | cnngvf.seedFallback(P, seeds, BW, cfg);
+[D, dropped] = cnngvf.seedFallback(P, seeds, BW, cfg);
+BW = BW | D;
 
 BW = imclose(BW, cfg.Post.MorphElement);
 
@@ -28,7 +29,9 @@ BW = imclose(BW, cfg.Post.MorphElement);
 % a false negative.
 BW = imfill(BW, 'holes');
 
-[perSeed, mask] = cnngvf.seedMasks(BW, seeds, cfg.Post.MinArea, cfg.Post.ClaimRule);
+% A dropped seed claims nothing; its per-seed entry stays [].
+perSeed = cell(size(seeds, 1), 1);
+[perSeed(~dropped), mask] = cnngvf.seedMasks(BW, seeds(~dropped, :), cfg.Post.MinArea, cfg.Post.ClaimRule);
 
 % Inter-frond gaps: fill between nearby seeds. docs/SPEC.md, stage 8.
 [perSeed, mask] = cnngvf.seedHull(perSeed, mask, seeds, cfg);

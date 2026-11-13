@@ -181,6 +181,7 @@ cfg.Post.MorphElement = strel('disk', 2);
 cfg.Post.fallbackMode = "relax";
 cfg.Post.relaxWindow  = 128;
 cfg.Post.relaxFloor   = 0.20;   % pre-registered; 0.5061 cross-fitted, 0.5097 fixed
+cfg.Post.relaxDisk    = true;   % EXPERIMENT, docs/briefs/relax-no-disk-fusion.md
 cfg.Post.seedRadius   = 15;
 
 % How a seed on background picks a component: "boundary" (nearest pixel of a
