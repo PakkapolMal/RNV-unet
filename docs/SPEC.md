@@ -711,8 +711,11 @@ contending for one laptop GPU is slower than serial.
     scoring.
 - **Most weak seeds end on an uncapped nearest claim.** Of 156 seeds the threshold leaves
   empty, 87 find no relax component of `MinArea`. They used to take the 15 px disk; since
-  2026-11-13 they claim the nearest component at any distance. On `125` and `299` that claim
-  is most of the adopted gain. A distance cap is untested.
+  2026-11-13 they claim the nearest component at any distance. Almost all of them reach a
+  component already claimed, so the claim changes the mask on two images, `125` and `299`, and
+  that is most of the adopted gain. A distance cap of 10–160 px loses 0.006 IoU, and
+  cross-fitting picks no cap in every fold
+  ([results](results/2026-11-13-relax-no-disk-fusion.md)).
 - **The balanced-sampling gain is unverified.** Every cross-validated arm used it.
 - **A trained CV costs about 5 h** on a Colab L4 (73–85 s per epoch, 40 epochs, 5 folds), and
   about 18 h for a frozen arm in MATLAB. Any post-`P` change scores off the cache with

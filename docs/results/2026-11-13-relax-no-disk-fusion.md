@@ -89,6 +89,11 @@ Largest losses under B: `098` −0.123, `nv (20)` −0.031, `500` −0.027, `211
 - Relax no longer plants the disk. A seed it cannot serve claims the nearest component in
   `seedMasks`. `seedDisks` stays for `fallbackMode = "disk"`, which the frozen arms use.
 - New reference: `reference/2026-11-13-relax-no-disk-69.csv`, mean IoU 0.6604.
-- **Open risk.** The uncapped nearest claim now decides the output for about 85 seeds. A cap on
-  the claim distance is the obvious next question. It needs a pre-registered brief, and it
-  will be judged on these same 69 images.
+- **The uncapped claim matters on two images, not 85 seeds.** 87 seeds stand on background, on
+  40 images; their claim distance has a median of 28 px and runs to the far side of the frame.
+  Almost all of them reach a component their own image's other seeds already claim, so the
+  mask does not change.
+- **A claim-distance cap does not help** (grid run without a brief, same day). Caps of 20–160 px
+  all score 0.6543, ΔIoU −0.0061, CI [−0.0156, +0.0000], 0 up / 2 down: they only take back
+  `125` (−0.226) and `299` (−0.198). 10 px scores 0.6548, with `nv (19)` +0.033. Cross-fitted
+  over 10–160 px and uncapped, every fold picks uncapped. The cap code was not kept.
