@@ -4,7 +4,7 @@ description: The working specification of the current pipeline — architecture,
 kind: specification
 status: current
 dataset: DRAC22 + TUH (69 images, standardized datasets/)
-updated: 2026-11-12
+updated: 2026-11-14
 ---
 
 # RNV Segmentation from Localization Points — Specification
@@ -673,8 +673,14 @@ contending for one laptop GPU is slower than serial.
   stalled under the adopted recipe. Check every arm's `log.csv` before reading its score.
 - **Is `perSeed = 8` better still?** 4 restored the other arms' setting; it is not a measured
   optimum, and the 1 → 4 step was worth +0.141.
-- **Stray localization points are confident, not weak.** 29 of 32 fire with `P ≈ 1`, so no
-  `P`-based seed filter fits; the ~+0.03 oracle headroom belongs to the localization stage.
+- **Most stray localization points are silent, and silencing the rest gains nothing.** On the
+  adopted EfficientNet-B3 cache, only 5 of the 30 points more than 50 px from every lesion fire
+  with `P` > 0.9. The "29 of 32 fire with `P ≈ 1`" figure was measured on the replica U-Net.
+  Suppressing every far point's patch, an oracle, is worth +0.0008 IoU, because a silent point
+  still claims the nearest component. Removing the points outright is worth +0.0107, but that
+  needs GT at inference, so the headroom belongs to the localization stage. One point,
+  `664.png`'s only one, sits at 55 px, so the 50–100 px band is no longer empty on these 871 points
+  ([results/2026-11-14-hard-neg-seeds.md](results/2026-11-14-hard-neg-seeds.md)).
 - **Tiny lesions are threshold-unstable.** A 0.8% shift in `P` can halve IoU on a ~1 000 px
   lesion by joining a neighbouring blob; expect large single-image swings in the smallest
   quintile from any change to `P`.

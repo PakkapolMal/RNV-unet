@@ -123,6 +123,7 @@ MIT, see [LICENSE](LICENSE). The license covers the code and documents here, not
 | [2026-11-12 fusion confirm](docs/results/2026-11-12-fusion-confirm.md) | does fusing every image replicate on a second seedless network? (69 images, 5-fold CV, cells fixed before training) | **yes: +0.0104** CI [+0.004, +0.019] (first run +0.0120); the sliver filter loses to plain fusion; **adopted: 0.6484** |
 | [2026-11-12 seedless ensemble](docs/results/2026-11-12-seedless-ensemble.md) | average the two seedless runs for stages 4a and 9? (69 images, 5-fold CV, one fixed cell) | no: +0.0030 CI [−0.004, +0.015]; stage 9 gains (`445` 0 → 0.36), stage 4a loses on the largest lesions; one run stays |
 | [2026-11-13 no disk](docs/results/2026-11-13-relax-no-disk-fusion.md) | drop relax's fallback disk under fusion? (69 images, 5-fold CV, one fixed cell) | pre-registered "no disk, no claim" fails: recall −0.021. **Adopted post hoc: 0.6604**, "no disk, nearest claim", +0.0120 CI [+0.001, +0.026]; +0.0104 of it is `125`, `428`, `299` |
+| [2026-11-14 hard negatives](docs/results/2026-11-14-hard-neg-seeds.md) | train on all-background patches at stray detections and bright vasculature, with the heat-map at every decoder scale; empty mask → stage 9? (69 images, oracle on the 2026-11-13 cache) | no, rejected before training: only 5 of 30 far points fire (`P` > 0.9), and perfect suppression is worth +0.0008 against a +0.015 gate; the stage 9 handoff moves 0 images |
 
 ## History
 
