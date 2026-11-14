@@ -5,10 +5,15 @@ kind: implementation-brief
 audience: Claude Code
 target: RNV-Claude/cnn (export, stage 9 handoff), RNV-Claude/colab (trainer), Colab L4 (user runs)
 depends-on: results/2026-11-13-relax-no-disk-fusion.md, results/2026-11-12-seedless-fallback.md, results/2026-11-11-paper-recipe.md, results/2026-09-17-refine.md
-status: pre-registered 2026-11-14
+status: rejected before training 2026-11-14
 ---
 
 # Hard-Negative Seeds and Multi-Scale Seed Conditioning
+
+> **Rejected brief.** Kept as written. Not trained: the oracle ceiling measured below, +0.0008
+> IoU against a +0.015 gate, ended it before the Colab run, by the user's decision.
+> The empty-mask handoff moves no image:
+> [../results/2026-11-14-hard-neg-seeds.md](../results/2026-11-14-hard-neg-seeds.md).
 
 ## Why (as proposed)
 
