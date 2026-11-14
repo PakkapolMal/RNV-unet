@@ -100,6 +100,12 @@ cfg.Patch.perSeed   = 4;     % 1 underfit by 0.141 IoU; docs/results/
 % detector errors identically.
 cfg.Patch.seedTolerance = 20;
 
+% Share of each epoch spent on all-background patches at a negative seed
+% (cnngvf.negativeSeeds): a detection more than 50 px from every lesion, or a
+% bright background pixel as far out. PyTorch trainer only.
+% docs/briefs/2026-11-14-hard-neg-seeds.md.
+cfg.Patch.negSeedFrac = 0.20;
+
 % Spend the epoch equally across IMAGES rather than seeds, so detection-rich
 % images (and TUH, 70% of seeds on 40% of images) do not dominate.
 cfg.Patch.balanceByImage = true;
@@ -117,6 +123,9 @@ cfg.Net.trainer      = "pytorch";
 % (+0.025 IoU, docs/results/2026-11-07-train-budget.md). The frozen arms keep
 % the MATLAB recipe (cnngvf.arm).
 cfg.Net.encoder      = "efficientnet-b3";
+% Feed the seed heat-map, max-pooled, into every decoder block as well as the
+% encoder input (docs/briefs/2026-11-14-hard-neg-seeds.md).
+cfg.Net.multiScaleSeed = true;
 cfg.Net.epochsCv     = 40;
 cfg.Net.lrMin        = 1e-6;
 cfg.Net.epochs       = 30;   % MATLAB trainer only (frozen arms); run_cv uses 20
@@ -202,6 +211,11 @@ cfg.Post.hullLink = 128;
 % docs/results/2026-11-12-seedless-fallback.md.
 cfg.Post.seedlessCache = fullfile(cfg.Paths.Output, 'cv', 'probcache_seedless');
 cfg.Post.noPointTau   = 0.40;
+
+% An image whose points claim nothing also takes stage 9: an empty mask is
+% known at inference. Moves no image on the 2026-11-13 cache;
+% docs/briefs/2026-11-14-hard-neg-seeds.md.
+cfg.Post.emptyToSeedless = true;
 
 % Stage 4a: seedless P above fuseTauS enters the seeded P by pixel max. 0.9 won
 % the tie against 0.5 (0.0009 apart) and was then fixed before the replication;

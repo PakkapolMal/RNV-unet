@@ -6,8 +6,9 @@ function [mask, perSeed] = cachedMask(cacheDir, img, seeds, cfg)
 %  cacheDir : the seeded CV P cache;  seeds : the image's S x 2 points
 %
 %  With Post.seedlessCache set: no points -> stage 9 (cnngvf.noPointMask);
-%  otherwise stage 4a (cnngvf.fuseSeedless) before cnngvf.maskFromProb. Every
-%  read goes through cnngvf.probCache's leakage guard. run_cache and
+%  otherwise stage 4a (cnngvf.fuseSeedless) before cnngvf.maskFromProb, and,
+%  with Post.emptyToSeedless, stage 9 again if the points claimed nothing.
+%  Every read goes through cnngvf.probCache's leakage guard. run_cache and
 %  run_figures both call this, so a figure always shows the scored mask.
 
 seedless = strlength(cfg.Post.seedlessCache) > 0;
@@ -24,4 +25,9 @@ if seedless
     P = cnngvf.fuseSeedless(P, double(cs.P), cfg);
 end
 [mask, perSeed] = cnngvf.maskFromProb(P, seeds, cfg);
+if seedless && cfg.Post.emptyToSeedless && ~any(mask, 'all')
+    % The points claimed nothing, which is known at inference
+    % (docs/briefs/2026-11-14-hard-neg-seeds.md).
+    [mask, perSeed] = deal(cnngvf.noPointMask(double(cs.P), cfg), cell(size(perSeed)));
+end
 end

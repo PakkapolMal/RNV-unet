@@ -26,6 +26,7 @@ import numpy as np
 import scipy.io as sio
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 def mround(x):
@@ -48,6 +49,9 @@ def load_bundle(root):
             label=m["label"],
             seeds=np.asarray(m["seeds"], float).reshape(-1, 2),
             comp=np.atleast_1d(m["comp"]).astype(int),
+            # cnngvf.negativeSeeds; absent from a bundle that predates it
+            negA=np.atleast_1d(m.get("negA", np.zeros(0))).astype(bool),
+            negB=m["negB"].astype(bool) if "negB" in m else None,
             dataset=str(m["dataset"]),
         )
     folds = []
@@ -110,6 +114,33 @@ def epoch_rows(cfg, train, rng):
     for n in names:
         mine = [r for r in train if r[0] == n]
         out += [mine[i] for i in rng.integers(len(mine), size=budget)]
+    return out
+
+
+def negative_rows(cfg, images, names, n_pos, rng):
+    """All-background rows (name, (cx, cy)), cfg.negSeedFrac of the epoch, shared
+    equally across names: with p 0.5 a detection more than 50 px from every
+    lesion (negA) where the image has one, else a bright background pixel (negB),
+    both from cnngvf.negativeSeeds. Drawn after the positives from the same rng,
+    so those stay the reference run's (docs/briefs/2026-11-14-hard-neg-seeds.md)."""
+    frac = float(cfg["negSeedFrac"]) if "negSeedFrac" in cfg else 0.0
+    n = int(mround(frac / (1 - frac) * n_pos))
+    if n == 0:
+        return []
+    names = [m for m in names if images[m]["negA"].any() or images[m]["negB"].any()]
+    q, r = divmod(n, len(names))
+    extra = rng.permutation(len(names)) < r
+    out = []
+    for name, more in zip(names, extra):
+        im = images[name]
+        a, b = np.flatnonzero(im["negA"]), np.flatnonzero(im["negB"])
+        for _ in range(q + more):
+            if len(a) and (len(b) == 0 or rng.random() < 0.5):
+                cx, cy = im["seeds"][rng.choice(a)]
+            else:
+                row, col = np.unravel_index(rng.choice(b), im["negB"].shape)
+                cx, cy = col + 1, row + 1                  # 1-based, as seeds
+            out.append((name, (float(cx), float(cy))))
     return out
 
 
@@ -209,16 +240,37 @@ def loss_fn(Y, T):
 class SmpNet(nn.Module):
     """ImageNet-pretrained U-Net from segmentation_models_pytorch, encoder from
     the bundle (cfg.Net.encoder). Input standardised per channel; softmax over
-    {background, RNV}, as UNet."""
+    {background, RNV}, as UNet.
 
-    def __init__(self, encoder, cin=2):
+    multi_scale_seed also feeds the seed heat-map (the last input channel, raw),
+    max-pooled to each decoder block's size, into that block's first conv, after
+    the upsampled and skip features (cfg.Net.multiScaleSeed,
+    docs/briefs/2026-11-14-hard-neg-seeds.md). The encoder is unchanged."""
+
+    def __init__(self, encoder, cin=2, multi_scale_seed=False, weights="imagenet"):
         super().__init__()
         import segmentation_models_pytorch as smp
         self.register_buffer("mean", torch.zeros(cin))
         self.register_buffer("sd", torch.ones(cin))
-        self.net = smp.Unet(encoder, encoder_weights="imagenet", in_channels=cin, classes=2)
+        self.net = smp.Unet(encoder, encoder_weights=weights, in_channels=cin, classes=2)
+        self.seed = None
+        if multi_scale_seed:
+            for blk in self.net.decoder.blocks:
+                c = blk.conv1[0]
+                new = nn.Conv2d(c.in_channels + 1, c.out_channels, c.kernel_size, padding=c.padding,
+                                bias=c.bias is not None)
+                nn.init.kaiming_uniform_(new.weight, mode="fan_in", nonlinearity="relu")   # as smp's decoder
+                if c.bias is not None:
+                    nn.init.zeros_(new.bias)
+                blk.conv1[0] = new
+                blk.conv1.register_forward_pre_hook(self._with_seed)
+
+    def _with_seed(self, conv, args):
+        x = args[0]
+        return (torch.cat([x, F.adaptive_max_pool2d(self.seed, x.shape[-2:]).to(x.dtype)], 1),)
 
     def forward(self, x):
+        self.seed = x[:, -1:]
         x = (x - self.mean.view(1, -1, 1, 1)) / self.sd.view(1, -1, 1, 1)
         return torch.softmax(self.net(x).float(), 1)
 
@@ -324,7 +376,8 @@ class PatchSet(torch.utils.data.Dataset):
     """One patch per row; training draws a fresh jitter and dihedral transform
     each read, validation is deterministic. Randomness comes from torch, which
     seeds every DataLoader worker differently. affine_clahe follows the
-    dihedral transform."""
+    dihedral transform. A row (name, (cx, cy)) from negative_rows is a negative
+    seed: the same patch, heat-map and augmentation, an all-background target."""
 
     def __init__(self, cfg, images, rows, augment):
         self.images, self.rows, self.augment = images, rows, augment
@@ -336,7 +389,8 @@ class PatchSet(torch.utils.data.Dataset):
     def __getitem__(self, i):
         name, s = self.rows[i]
         im = self.images[name]
-        seed = im["seeds"][s]
+        neg = isinstance(s, tuple)
+        seed = np.array(s) if neg else im["seeds"][s]
         center = seed
         if self.augment:
             center = seed + torch.randint(-self.jitter, self.jitter + 1, (2,)).numpy()
@@ -345,7 +399,8 @@ class PatchSet(torch.utils.data.Dataset):
         inR = (rows >= 1) & (rows <= h)
         inC = (cols >= 1) & (cols <= w)
         fg = np.zeros((self.p, self.p), bool)
-        fg[np.ix_(inR, inC)] = im["label"][np.ix_(rows[inR] - 1, cols[inC] - 1)] == im["comp"][s]
+        if not neg:
+            fg[np.ix_(inR, inC)] = im["label"][np.ix_(rows[inR] - 1, cols[inC] - 1)] == im["comp"][s]
         if self.augment:
             if torch.rand(1) < 0.5:
                 X, fg = np.fliplr(X), np.fliplr(fg)
@@ -410,8 +465,10 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
     epoch. The last epoch is the output. The epoch's patch list is drawn once,
     as prepareData does. Adopted in docs/results/2026-11-07-train-budget.md
     (schedule) and docs/results/2026-11-11-paper-recipe.md (network, loss,
-    augmentation). Returns the trained model, or None when stop_after stopped
-    it early.
+    augmentation). cfg.negSeedFrac adds negative_rows to the patch list and
+    cfg.multiScaleSeed feeds the heat-map to the decoder
+    (docs/briefs/2026-11-14-hard-neg-seeds.md); a bundle without them trains
+    neither. Returns the trained model, or None when stop_after stopped it early.
 
     seedless trains the whole-frame network for images with no points
     instead: SmpNet with intensity only, every non-test image cfg.seedlessCopies
@@ -440,16 +497,23 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
     opts = dict(epochs=epochs, lr=lr, lr_min=lr_min, miniBatch=mb, encoder=str(cfg["encoder"]))
     if seedless:
         opts.update(seedless=True, copies=copies)
+    neg = 0.0 if seedless else float(cfg.get("negSeedFrac", 0.0))
+    multi = not seedless and bool(cfg.get("multiScaleSeed", False))
+    # Recorded only when on, so a checkpoint of the reference recipe still resumes.
+    if neg:
+        opts["negSeedFrac"] = neg
+    if multi:
+        opts["multiScaleSeed"] = True
 
+    held = set(fold["test"])
     if seedless:
-        held = set(fold["test"])
         train = [n for n in images if n not in held]
         dataset = lambda rows: FrameSet(images, rows, True)
     else:
         train = training_rows(cfg, images, fold)
         dataset = lambda rows: PatchSet(cfg, images, rows, True)
     cin = next(iter(images.values()))["chans"].shape[2] + (0 if seedless else 1)
-    model = SmpNet(str(cfg["encoder"]), cin).to(device)
+    model = SmpNet(str(cfg["encoder"]), cin, multi).to(device)
     # Decay conv weights only: "weight" also names BatchNorm scales.
     decay = [p for p in model.parameters() if p.ndim > 1]
     no_decay = [p for p in model.parameters() if p.ndim <= 1]
@@ -472,15 +536,21 @@ def train_fold(root, run_root, fold_no, rng, epochs=None, stop_after=None, worke
         print(f"fold {fold_no}: resuming after epoch {done}")
     else:
         torch.manual_seed(rng)
-        rows = (train * copies if seedless
-                else epoch_rows(cfg, train, np.random.default_rng(rng)))
+        if seedless:
+            rows = train * copies
+        else:
+            gen = np.random.default_rng(rng)
+            rows = epoch_rows(cfg, train, gen)
+            rows += negative_rows(cfg, images, [n for n in images if n not in held], len(rows), gen)
         once = torch.utils.data.DataLoader(dataset(rows), batch_size=16, num_workers=workers)
         mean, sd = channel_stats(once)
         with torch.no_grad():
             model.mean.copy_(mean.to(device))
             model.sd.copy_(sd.to(device))
         done = 0
-    print(f"fold {fold_no}: {len(train)} {'images' if seedless else 'seeds'}, {len(rows)} samples/epoch, "
+    n_neg = 0 if seedless else sum(isinstance(r[1], tuple) for r in rows)
+    print(f"fold {fold_no}: {len(train)} {'images' if seedless else 'seeds'}, {len(rows)} samples/epoch "
+          f"({n_neg} negative), "
           f"mean {np.round(model.mean.cpu().numpy(), 4)} (MATLAB {np.round(fold['mean'], 4)}), {device}")
 
     train_loader = torch.utils.data.DataLoader(dataset(rows), batch_size=mb, shuffle=True,

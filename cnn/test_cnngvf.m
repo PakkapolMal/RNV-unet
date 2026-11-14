@@ -18,11 +18,13 @@ testSeedComponents(cfg);
 testSeedHull(cfg);
 testNoPointMask(cfg);
 testFuseSeedless(cfg);
+testEmptyToSeedless(cfg);
 testProbCache(cfg);
 testRunCache(cfg);
 testDomain(cfg);
 testArms(cfg);
 testSeedTolerance(cfg);
+testNegativeSeeds(cfg);
 
 fprintf('\nAll checks passed.\n');
 end
@@ -260,6 +262,41 @@ fprintf('  seedless fusion           ok (pixel max above fuseTauS)\n');
 end
 
 
+function testEmptyToSeedless(cfg)
+% An image whose points claim nothing takes stage 9, only with the flag on; a
+% mask with anything in it is kept. docs/briefs/2026-11-14-hard-neg-seeds.md.
+folds = cnngvf.cvFolds(cfg);
+img   = folds{1}(1);
+tmp   = tempname;
+cleanup = onCleanup(@() rmdir(tmp, 's'));
+seeded = fullfile(tmp, 'seeded');
+cfg.Post.seedlessCache = fullfile(tmp, 'seedless');
+meta = struct('fold', 1, 'arm', "test");
+
+Ps = zeros(300);
+Ps(101:160, 101:160) = 0.6;    % above noPointTau 0.40, below fuseTauS 0.9: not fused
+cnngvf.probCache("write", cfg.Post.seedlessCache, img, Ps, meta);
+cnngvf.probCache("write", seeded, img, zeros(300), meta);
+
+cfg.Post.emptyToSeedless = false;
+assert(~any(cnngvf.cachedMask(seeded, img, [30 30], cfg), 'all'), ...
+    'the fixture should leave the point with nothing');
+cfg.Post.emptyToSeedless = true;
+[m, ps] = cnngvf.cachedMask(seeded, img, [30 30], cfg);
+assert(nnz(m) == 3600 && isequal(m, cnngvf.noPointMask(Ps, cfg)), ...
+    'an empty mask did not take stage 9 (%d px)', nnz(m));
+assert(numel(ps) == 1 && isempty(ps{1}), 'stage 9 handed a mask to a point');
+
+P = zeros(300);
+P(201:260, 201:260) = 0.9;
+cnngvf.probCache("write", seeded, img, P, meta);
+m = cnngvf.cachedMask(seeded, img, [230 230], cfg);
+assert(m(230, 230) && ~m(130, 130), 'stage 9 replaced a mask the points had claimed');
+
+fprintf('  empty mask to stage 9     ok (only when the points claim nothing)\n');
+end
+
+
 function testProbCache(cfg)
 % The cache is what makes a post-processing change cost seconds instead of 18 h,
 % so two things about it have to hold: it must not quantize, and it must refuse
@@ -418,7 +455,10 @@ assert(isequal(cnngvf.arm(cfg, "DRACTUH_unclustered"), cfg), ...
 assert(cfg.Post.fallbackMode == "relax" && cfg.Post.relaxFloor == 0.20, ...
     'the current configuration does not relax at 0.20');
 for a = ["unclustered", "unclustered_boundary"]
-    assert(cnngvf.arm(cfg, a).Post.fallbackMode == "disk", 'frozen arm %s moved off the disk', a);
+    c = cnngvf.arm(cfg, a);
+    assert(c.Post.fallbackMode == "disk", 'frozen arm %s moved off the disk', a);
+    assert(c.Patch.negSeedFrac == 0 && ~c.Net.multiScaleSeed && ~c.Post.emptyToSeedless, ...
+        'frozen arm %s picked up the hard-negative arm''s changes', a);
 end
 
 fprintf('  arm definitions           ok (%s)\n', strjoin(cnngvf.arm(), ', '));
@@ -460,6 +500,39 @@ assert(cnngvf.seedLabels(gt, [210 150], 0) == 0, ...
     'tolerance 0 would still label an outside seed');
 
 fprintf('  seed tolerance            ok (%g px, boundary distance)\n', tol);
+end
+
+
+function testNegativeSeeds(cfg)
+% A detection is a negative only beyond 50 px, so the 20-50 px band trains as
+% neither; background candidates are as far out and bright; no negative is
+% also labelled with a lesion; and a negative's heat-map peaks on it through
+% the jitter. docs/briefs/2026-11-14-hard-neg-seeds.md.
+gt = false(400);
+gt(100:200, 100:200) = true;       % lesion, boundary at col 200
+I = zeros(400);
+I(:, 2:2:end) = 1;                 % bright every other column: the 75th percentile is 1
+seeds = [150 150; 210 150; 240 150; 260 150; 380 380];   % inside, 10, 40, 60 px out, far
+
+[negA, negB] = cnngvf.negativeSeeds(gt, I, seeds);
+assert(isequal(negA', [false false false true true]), ...
+    'negatives %s, want only the points beyond 50 px', mat2str(negA'));
+d = bwdist(gt);
+assert(~any(negB & (d <= 50 | I < 1), 'all'), 'a background candidate is near the lesion or dark');
+assert(negB(150, 260) && ~negB(150, 240) && ~negB(150, 261), ...
+    'background candidates miss a bright pixel 60 px out, or take a near or dark one');
+assert(all(cnngvf.seedLabels(gt, seeds(negA, :), cfg.Patch.seedTolerance) == 0), ...
+    'a negative seed is also labelled with a lesion');
+
+s = seeds(4, :);
+X = cnngvf.seedPatch(I, s, s + [25 -30], cfg);
+[~, k] = max(X(:, :, end), [], 'all');
+[pr, pc] = ind2sub([cfg.Patch.size cfg.Patch.size], k);
+half = floor(cfg.Patch.size / 2);
+assert(pr == half + 1 + 30 && pc == half + 1 - 25, ...
+    'the heat-map does not peak on the negative seed through the jitter');
+
+fprintf('  negative seeds            ok (50 px, bright background, heat-map)\n');
 end
 
 

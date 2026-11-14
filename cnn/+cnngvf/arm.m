@@ -59,6 +59,11 @@ cfg.Net.learnRate     = 1e-3;
 
 cfg.CV.reference = "";   % frozen arms have no reference on master
 cfg.Post.seedlessCache = "";  % the seedless network came after every frozen arm
+% Negative seeds, decoder seed conditioning and the empty-mask handoff came
+% after them too.
+cfg.Patch.negSeedFrac    = 0;
+cfg.Net.multiScaleSeed   = false;
+cfg.Post.emptyToSeedless = false;
 cfg.CV.ModelArm = a.cvModelArm;
 if strlength(cfg.CV.ModelArm) == 0
     cfg.CV.ModelArm = cfg.Arm;

@@ -11,7 +11,7 @@ function outDir = run_export(cfg, outDir)
 %    bundle.mat          the cfg values training and inference use
 %    images/<stem>.mat   chans (loadChannels), label (FilledGT labelmatrix),
 %                        seeds, comp (cnngvf.seedLabels; 0 = dropped from
-%                        training)
+%                        training), negA and negB (cnngvf.negativeSeeds)
 %    folds/fold<k>.mat   test and inner-validation images, the patch counts the
 %                        MATLAB run recorded, and that fold network's weights
 %                        and input mean
@@ -19,8 +19,9 @@ function outDir = run_export(cfg, outDir)
 %                        values, one network forward pass and one whole-image P
 %                        (CPU), each produced by the MATLAB code itself
 %
-%  The recipe the trainer runs (encoder, epochsCv, learnRate, lrMin, miniBatch,
-%  and the seedless network's seedless*) comes from cfg.Net,
+%  The recipe the trainer runs (encoder, multiScaleSeed, epochsCv, learnRate,
+%  lrMin, miniBatch, the seedless network's seedless*, and Patch.negSeedFrac)
+%  comes from cfg,
 %  so a bundle exported before a recipe change trains the old one: re-export.
 %
 %  .mat v7, which scipy.io.loadmat reads. Strings are saved as cellstr for the
@@ -59,8 +60,10 @@ b.jitter      = cfg.Patch.jitter;
 b.perSeed     = cfg.Patch.perSeed;
 b.seedTolerance  = cfg.Patch.seedTolerance;
 b.balanceByImage = cfg.Patch.balanceByImage;
+b.negSeedFrac = cfg.Patch.negSeedFrac;
 b.encoderDepth = cfg.Net.encoderDepth;
 b.encoder     = char(cfg.Net.encoder);
+b.multiScaleSeed = cfg.Net.multiScaleSeed;
 b.epochsCv    = cfg.Net.epochsCv;
 b.lrMin       = cfg.Net.lrMin;
 b.miniBatch   = cfg.Net.miniBatch;
@@ -77,7 +80,9 @@ for i = 1:height(M)
     [~, im.chans] = cnngvf.loadChannels(M.ImgPath(i), cfg);
     im.chans   = single(im.chans);
     im.seeds   = seeds(names == M.Name(i), :);
-    [im.comp, L] = cnngvf.seedLabels(cnngvf.loadMask(M.GtPath(i)), im.seeds, cfg.Patch.seedTolerance);
+    gt = cnngvf.loadMask(M.GtPath(i));
+    [im.comp, L] = cnngvf.seedLabels(gt, im.seeds, cfg.Patch.seedTolerance);
+    [im.negA, im.negB] = cnngvf.negativeSeeds(gt, im.chans(:, :, 1), im.seeds);
     im.label   = uint16(L);
     im.name    = char(M.Name(i));
     im.dataset = char(M.Dataset(i));
