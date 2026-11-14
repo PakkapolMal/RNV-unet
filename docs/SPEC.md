@@ -53,42 +53,50 @@ truth: `test_cnngvf` fails if the file stops matching it.
 
 ### Seed tolerance
 
-The localization points come from separate research and contain errors: 81 of 874 fall
+The localization points come from separate research and contain errors: 81 of 871 fall
 outside every ground-truth lesion. **They are not one population.** Measured as true
-boundary distance to the nearest lesion, the distribution is sharply bimodal, with
-*nothing at all* between 50 and 100 px:
+boundary distance to the nearest lesion, at the rounded point, the distribution is sharply
+bimodal. Between 50 and 100 px there is a single point:
 
 | distance | points | | distance | points |
 |---|---|---|---|---|
-| ≤ 5 px | 36 | | 50–100 px | **0** ← separator |
+| ≤ 5 px | 34 | | 50–100 px | **1** (`664.png`, 55 px) |
 | 5–10 px | 8 | | 100–200 px | 7 |
-| 10–20 px | 5 | | > 200 px | 21 (max 843) |
-| 20–50 px | 4 | | | |
+| 10–20 px | 5 | | > 200 px | 22 (max 843) |
+| 20–50 px | 4 (30–46 px) | | | |
+
+On the earlier 874-point domain the 50–100 px band was empty. `664.png`'s only point is the
+exception on the standardized `datasets/`
+([results/2026-11-14-hard-neg-seeds.md](results/2026-11-14-hard-neg-seeds.md)).
 
 The near group are **boundary near-misses**, not localization errors — a detection 3 px
 outside a lesion edge is a quibble about where the annotator drew the line. The far group
 are **genuine detector false positives**, confirmed by eye:
 
-- **`299.png`** — all 4 detections 307–726 px away on ordinary capillary background, while
+- **`299.png`** — all 4 detections 306–726 px away on ordinary capillary background, while
   the real lesion (a clearly visible tuft) went undetected entirely.
-- **`419.png`** — 2 detections correctly on the lesion, one at 116 px on normal
+- **`419.png`** — 2 detections correctly on the lesion, one at 115 px on normal
   vasculature, one at 602 px on plain background.
 
 In both cases the ground truth is correct and the *detector* is wrong, so dropping the far
 points is the right repair.
 
 `cfg.Patch.seedTolerance = 20` px labels a seed with the nearest lesion within that
-distance, and drops the rest: **49 recovered, 32 rejected**. The exact value does not
-matter — the empty 50–100 px band means anything in 20–100 behaves identically — and 20
-sits inside the ±32 px crop jitter the network already sees. Distance is to the
+distance, and drops the rest: **47 recovered, 34 rejected**. The exact value barely matters: every
+tolerance from 20 to 29 px gives the same labels, and only five points lie between 20 and
+100 px. 20 also sits inside the ±32 px crop jitter the network already sees. Distance is to the
 **boundary**, not the centroid, the same rule `cnngvf.seedMasks` claims with at inference.
 
 **Rejection uses ground truth, so it applies to training only.** Filtering the points at
 *inference* by whether they hit a lesion would be leakage, and no such number is
-reportable. The oracle version of that filter bounds the headroom at about +0.03 IoU, and
-no filter that reads only `P` came close: stray seeds fire with `P ≈ 1`, so the headroom
-belongs to the localization stage ([results/2026-09-17-refine.md](results/2026-09-17-refine.md),
-step 2).
+reportable. On the adopted network's cache, the oracle version of that filter (the 30
+points beyond 50 px removed before inference) is worth +0.0107 IoU. Training cannot reach
+it: only 5 of those 30 points fire with `P` > 0.9, and a silent point still claims the
+nearest component, so silencing every far point's patch is worth +0.0008. The headroom
+belongs to the localization stage
+([results/2026-11-14-hard-neg-seeds.md](results/2026-11-14-hard-neg-seeds.md); on the
+replica U-Net, where stray points did fire with `P ≈ 1`, the oracle was about +0.03:
+[results/2026-09-17-refine.md](results/2026-09-17-refine.md), step 2).
 
 Six DRAC22 images end up with ground truth but no usable seed — **`082.png`, `217.png` and
 `445.png`** have no points at all, **`299.png`, `573.png` and `664.png`** only points beyond the
